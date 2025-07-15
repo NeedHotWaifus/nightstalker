@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # 🌙 NightStalker - Advanced Offensive Security Framework
 
 A comprehensive offensive security framework featuring two specialized subsystems for web exploitation and advanced red teaming operations.
@@ -172,3 +173,7 @@ nightstalker/
 **Remember**: Always obtain proper authorization before testing any systems, and follow responsible disclosure practices when reporting vulnerabilities.
 
 **Happy Hacking! 🎯** 
+=======
+# nightstalker
+M Custom Prompt Made Framework
+>>>>>>> c2390586fe079888898d7dc2887592a6b1848914
