@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2025 NeedHotWaifus
+Copyright (c) 2024 NightStalker Security Research Team
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -20,8 +20,20 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-Disclaimer:
+IMPORTANT NOTICE:
+This software is designed exclusively for authorized security research, 
+red teaming, and penetration testing. Users are responsible for ensuring 
+compliance with applicable laws and regulations. The authors assume no 
+liability for misuse of this software. 
 
-This software is intended for educational and research purposes only.  
-The author does NOT support or encourage any illegal activity.  
-Use this software at your own risk. The author is NOT responsible for any damage, loss, or legal consequences resulting from its use.
+Main license:
+Copyright (c) 2024 NightStalker Security Research Team
+
+All rights reserved.
+
+This software and associated documentation are proprietary and confidential. 
+No part of this software may be copied, modified, published, distributed, 
+or used in any way without explicit written permission from the authors.
+
+This software is intended solely for authorized security research, red teaming, 
+and penetration testing under applicable laws. Unauthorized use is strictly prohibited.

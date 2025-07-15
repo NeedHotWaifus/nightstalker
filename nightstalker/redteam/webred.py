@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 import logging
 
+from nightstalker.utils.tool_manager import ToolManager
+
 logger = logging.getLogger(__name__)
 
 class WebRedTeam:
@@ -25,12 +27,20 @@ class WebRedTeam:
         })
         self.results = {}
         self.target_info = {}
-        
-    def scan(self, url: str, modules: List[str] = None) -> Dict[str, Any]:
+        # Initialize required tools
+        self._init_tools()
+    
+    def _init_tools(self):
+        """Initialize and check required external tools"""
+        required_tools = ['sqlmap', 'nuclei', 'ffuf', 'gobuster', 'nikto', 'wpscan']
+        logger.info("Checking required tools for WebRed module...")
+        ToolManager.check_and_install_tools(required_tools, logger)
+    
+    def scan(self, url: str, modules: Optional[List[str]] = None) -> Dict[str, Any]:
         """Comprehensive web reconnaissance and enumeration"""
         print(f"[WebRed] Starting comprehensive scan of {url}")
         
-        if modules is None or 'all' in modules:
+        if modules is None or 'all' in (modules or []):
             modules = ['recon', 'enum', 'vuln', 'tech', 'dir', 'subdomain']
         
         scan_results = {
@@ -227,36 +237,22 @@ class WebRedTeam:
         
         return advanced_findings
     
-    def exploit(self, url: str, exploit_type: str, payload: str = None) -> Dict[str, Any]:
-        """Execute web exploits with post-exploitation"""
+    def exploit(self, url: str, exploit_type: str, payload: Optional[str] = None) -> Dict[str, Any]:
+        """Execute exploitation based on type"""
         print(f"[WebRed] Executing {exploit_type} exploit on {url}")
         
-        exploit_results = {
-            'url': url,
-            'exploit_type': exploit_type,
-            'timestamp': time.time(),
-            'success': False,
-            'post_exploitation': {}
+        exploit_methods = {
+            'sqlmap': self._sqlmap_exploit,
+            'xss': self._xss_exploit,
+            'lfi': self._lfi_exploit,
+            'rfi': self._rfi_exploit,
+            'upload': self._upload_exploit
         }
         
-        try:
-            if exploit_type == 'sqlmap':
-                exploit_results.update(self._sqlmap_exploit(url, payload))
-            elif exploit_type == 'xss':
-                exploit_results.update(self._xss_exploit(url, payload))
-            elif exploit_type == 'lfi':
-                exploit_results.update(self._lfi_exploit(url, payload))
-            elif exploit_type == 'rfi':
-                exploit_results.update(self._rfi_exploit(url, payload))
-            elif exploit_type == 'upload':
-                exploit_results.update(self._upload_exploit(url, payload))
-            else:
-                exploit_results['error'] = f"Unknown exploit type: {exploit_type}"
-                
-        except Exception as e:
-            exploit_results['error'] = str(e)
-        
-        return exploit_results
+        if exploit_type in exploit_methods:
+            return exploit_methods[exploit_type](url, payload)
+        else:
+            return {'error': f'Unknown exploit type: {exploit_type}'}
     
     def post_exploitation(self, target_info: Dict[str, Any]) -> Dict[str, Any]:
         """Post-exploitation activities"""
@@ -579,36 +575,207 @@ class WebRedTeam:
     # Placeholder methods for exploitation (to be implemented)
     def _sqlmap_exploit(self, url: str, payload: str = None) -> Dict[str, Any]:
         """Execute SQLMap exploitation"""
-        return {'method': 'sqlmap', 'status': 'placeholder'}
+        try:
+            if not ToolManager.is_tool_installed('sqlmap'):
+                return {'method': 'sqlmap', 'status': 'error', 'message': 'SQLMap not installed'}
+            
+            cmd = ['sqlmap', '-u', url, '--batch', '--random-agent', '--level=1', '--risk=1']
+            
+            if payload:
+                cmd.extend(['--data', payload])
+            
+            logger.info(f"Running SQLMap: {' '.join(cmd)}")
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            
+            return {
+                'method': 'sqlmap',
+                'status': 'success' if result.returncode == 0 else 'failed',
+                'stdout': result.stdout,
+                'stderr': result.stderr,
+                'returncode': result.returncode
+            }
+        except subprocess.TimeoutExpired:
+            return {'method': 'sqlmap', 'status': 'timeout'}
+        except Exception as e:
+            logger.error(f"SQLMap exploitation failed: {e}", exc_info=True)
+            return {'method': 'sqlmap', 'status': 'error', 'message': str(e)}
     
     def _xss_exploit(self, url: str, payload: str = None) -> Dict[str, Any]:
-        """Execute XSS exploitation"""
-        return {'method': 'xss', 'status': 'placeholder'}
+        """Execute XSS exploitation using Nuclei"""
+        try:
+            if not ToolManager.is_tool_installed('nuclei'):
+                return {'method': 'xss', 'status': 'error', 'message': 'Nuclei not installed'}
+            
+            cmd = ['nuclei', '-u', url, '-t', 'xss', '-silent', '-json']
+            
+            logger.info(f"Running Nuclei XSS scan: {' '.join(cmd)}")
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            
+            return {
+                'method': 'xss',
+                'status': 'success' if result.returncode == 0 else 'failed',
+                'stdout': result.stdout,
+                'stderr': result.stderr,
+                'returncode': result.returncode
+            }
+        except subprocess.TimeoutExpired:
+            return {'method': 'xss', 'status': 'timeout'}
+        except Exception as e:
+            logger.error(f"XSS exploitation failed: {e}", exc_info=True)
+            return {'method': 'xss', 'status': 'error', 'message': str(e)}
     
     def _lfi_exploit(self, url: str, payload: str = None) -> Dict[str, Any]:
-        """Execute LFI exploitation"""
-        return {'method': 'lfi', 'status': 'placeholder'}
+        """Execute LFI exploitation using Nuclei"""
+        try:
+            if not ToolManager.is_tool_installed('nuclei'):
+                return {'method': 'lfi', 'status': 'error', 'message': 'Nuclei not installed'}
+            
+            cmd = ['nuclei', '-u', url, '-t', 'lfi', '-silent', '-json']
+            
+            logger.info(f"Running Nuclei LFI scan: {' '.join(cmd)}")
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            
+            return {
+                'method': 'lfi',
+                'status': 'success' if result.returncode == 0 else 'failed',
+                'stdout': result.stdout,
+                'stderr': result.stderr,
+                'returncode': result.returncode
+            }
+        except subprocess.TimeoutExpired:
+            return {'method': 'lfi', 'status': 'timeout'}
+        except Exception as e:
+            logger.error(f"LFI exploitation failed: {e}", exc_info=True)
+            return {'method': 'lfi', 'status': 'error', 'message': str(e)}
     
     def _rfi_exploit(self, url: str, payload: str = None) -> Dict[str, Any]:
-        """Execute RFI exploitation"""
-        return {'method': 'rfi', 'status': 'placeholder'}
+        """Execute RFI exploitation using Nuclei"""
+        try:
+            if not ToolManager.is_tool_installed('nuclei'):
+                return {'method': 'rfi', 'status': 'error', 'message': 'Nuclei not installed'}
+            
+            cmd = ['nuclei', '-u', url, '-t', 'rfi', '-silent', '-json']
+            
+            logger.info(f"Running Nuclei RFI scan: {' '.join(cmd)}")
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            
+            return {
+                'method': 'rfi',
+                'status': 'success' if result.returncode == 0 else 'failed',
+                'stdout': result.stdout,
+                'stderr': result.stderr,
+                'returncode': result.returncode
+            }
+        except subprocess.TimeoutExpired:
+            return {'method': 'rfi', 'status': 'timeout'}
+        except Exception as e:
+            logger.error(f"RFI exploitation failed: {e}", exc_info=True)
+            return {'method': 'rfi', 'status': 'error', 'message': str(e)}
     
     def _upload_exploit(self, url: str, payload: str = None) -> Dict[str, Any]:
-        """Execute file upload exploitation"""
-        return {'method': 'upload', 'status': 'placeholder'}
+        """Execute file upload exploitation using Nuclei"""
+        try:
+            if not ToolManager.is_tool_installed('nuclei'):
+                return {'method': 'upload', 'status': 'error', 'message': 'Nuclei not installed'}
+            
+            cmd = ['nuclei', '-u', url, '-t', 'file-upload', '-silent', '-json']
+            
+            logger.info(f"Running Nuclei file upload scan: {' '.join(cmd)}")
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            
+            return {
+                'method': 'upload',
+                'status': 'success' if result.returncode == 0 else 'failed',
+                'stdout': result.stdout,
+                'stderr': result.stderr,
+                'returncode': result.returncode
+            }
+        except subprocess.TimeoutExpired:
+            return {'method': 'upload', 'status': 'timeout'}
+        except Exception as e:
+            logger.error(f"File upload exploitation failed: {e}", exc_info=True)
+            return {'method': 'upload', 'status': 'error', 'message': str(e)}
     
     # Placeholder methods for vulnerability testing
     def _check_sql_injection(self, url: str) -> Dict[str, Any]:
-        return {'vulnerable': False, 'method': 'placeholder'}
+        """Check for SQL injection using Nuclei"""
+        try:
+            if not ToolManager.is_tool_installed('nuclei'):
+                return {'vulnerable': False, 'method': 'nuclei', 'error': 'Nuclei not installed'}
+            
+            cmd = ['nuclei', '-u', url, '-t', 'sqli', '-silent', '-json']
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            
+            vulnerable = result.returncode == 0 and result.stdout.strip()
+            return {
+                'vulnerable': vulnerable,
+                'method': 'nuclei',
+                'output': result.stdout,
+                'returncode': result.returncode
+            }
+        except Exception as e:
+            logger.error(f"SQL injection check failed: {e}", exc_info=True)
+            return {'vulnerable': False, 'method': 'nuclei', 'error': str(e)}
     
     def _check_xss(self, url: str) -> Dict[str, Any]:
-        return {'vulnerable': False, 'method': 'placeholder'}
+        """Check for XSS using Nuclei"""
+        try:
+            if not ToolManager.is_tool_installed('nuclei'):
+                return {'vulnerable': False, 'method': 'nuclei', 'error': 'Nuclei not installed'}
+            
+            cmd = ['nuclei', '-u', url, '-t', 'xss', '-silent', '-json']
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            
+            vulnerable = result.returncode == 0 and result.stdout.strip()
+            return {
+                'vulnerable': vulnerable,
+                'method': 'nuclei',
+                'output': result.stdout,
+                'returncode': result.returncode
+            }
+        except Exception as e:
+            logger.error(f"XSS check failed: {e}", exc_info=True)
+            return {'vulnerable': False, 'method': 'nuclei', 'error': str(e)}
     
     def _check_lfi(self, url: str) -> Dict[str, Any]:
-        return {'vulnerable': False, 'method': 'placeholder'}
+        """Check for LFI using Nuclei"""
+        try:
+            if not ToolManager.is_tool_installed('nuclei'):
+                return {'vulnerable': False, 'method': 'nuclei', 'error': 'Nuclei not installed'}
+            
+            cmd = ['nuclei', '-u', url, '-t', 'lfi', '-silent', '-json']
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            
+            vulnerable = result.returncode == 0 and result.stdout.strip()
+            return {
+                'vulnerable': vulnerable,
+                'method': 'nuclei',
+                'output': result.stdout,
+                'returncode': result.returncode
+            }
+        except Exception as e:
+            logger.error(f"LFI check failed: {e}", exc_info=True)
+            return {'vulnerable': False, 'method': 'nuclei', 'error': str(e)}
     
     def _check_rfi(self, url: str) -> Dict[str, Any]:
-        return {'vulnerable': False, 'method': 'placeholder'}
+        """Check for RFI using Nuclei"""
+        try:
+            if not ToolManager.is_tool_installed('nuclei'):
+                return {'vulnerable': False, 'method': 'nuclei', 'error': 'Nuclei not installed'}
+            
+            cmd = ['nuclei', '-u', url, '-t', 'rfi', '-silent', '-json']
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            
+            vulnerable = result.returncode == 0 and result.stdout.strip()
+            return {
+                'vulnerable': vulnerable,
+                'method': 'nuclei',
+                'output': result.stdout,
+                'returncode': result.returncode
+            }
+        except Exception as e:
+            logger.error(f"RFI check failed: {e}", exc_info=True)
+            return {'vulnerable': False, 'method': 'nuclei', 'error': str(e)}
     
     def _check_open_redirect(self, url: str) -> Dict[str, Any]:
         return {'vulnerable': False, 'method': 'placeholder'}

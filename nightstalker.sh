@@ -17,16 +17,29 @@ NC='\033[0m' # No Color
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Check if we're in the NightStalker project root (has nightstalker/ subdirectory)
+# If NIGHTSTALKER_HOME is set, use it. Otherwise, use ~/.nightstalker
+if [ -n "$NIGHTSTALKER_HOME" ]; then
+    NS_HOME="$NIGHTSTALKER_HOME"
+else
+    NS_HOME="$HOME/.nightstalker"
+fi
+
+# Create the home directory if it doesn't exist
+if [ ! -d "$NS_HOME" ]; then
+    mkdir -p "$NS_HOME"
+    echo "[*] Created NightStalker home directory at $NS_HOME"
+fi
+
+# If running from a project root (has nightstalker/ subdirectory), use that as codebase
 if [ -d "$SCRIPT_DIR/nightstalker" ]; then
     NIGHTSTALKER_DIR="$SCRIPT_DIR"
 elif [ -d "$SCRIPT_DIR/../nightstalker" ]; then
-    # Script might be in a subdirectory
     NIGHTSTALKER_DIR="$(dirname "$SCRIPT_DIR")"
 else
-    # Fallback to environment variable or default
-    NIGHTSTALKER_DIR="${NIGHTSTALKER_HOME:-$HOME/path/to/nightstalker}"
+    NIGHTSTALKER_DIR="$NS_HOME"
 fi
+
+export NIGHTSTALKER_HOME="$NS_HOME"
 
 # Function to print colored output
 print_status() {
