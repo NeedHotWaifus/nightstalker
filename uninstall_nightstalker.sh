@@ -1,26 +1,23 @@
 #!/bin/bash
 
-# NightStalker Launcher Uninstall Script
-# Advanced Offensive Security Framework
-# Version: 1.0
+# NightStalker Framework Uninstaller
+# This script removes NightStalker from your system
+
+set -e
 
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-PURPLE='\033[0;35m'
 NC='\033[0m' # No Color
-
-# Installation paths to check
-INSTALL_PATHS=(
-    "/usr/local/bin/nightstalker"
-    "$HOME/.local/bin/nightstalker"
-    "/usr/bin/nightstalker"
-)
 
 # Function to print colored output
 print_status() {
+    echo -e "${BLUE}[*]${NC} $1"
+}
+
+print_success() {
     echo -e "${GREEN}[+]${NC} $1"
 }
 
@@ -32,284 +29,155 @@ print_error() {
     echo -e "${RED}[-]${NC} $1"
 }
 
-print_info() {
-    echo -e "${BLUE}[*]${NC} $1"
-}
-
-print_banner() {
-    echo -e "${PURPLE}"
-    cat << "EOF"
-╔══════════════════════════════════════════════════════════════╗
-║              🌙 NIGHTSTALKER UNINSTALLER                     ║
-║              Advanced Offensive Security Framework            ║
-╚══════════════════════════════════════════════════════════════╝
-EOF
-    echo -e "${NC}"
-}
-
-# Function to find installed launcher
-find_launcher() {
-    local found_paths=()
-    
-    for path in "${INSTALL_PATHS[@]}"; do
-        if [ -f "$path" ]; then
-            found_paths+=("$path")
-        fi
-    done
-    
-    echo "${found_paths[@]}"
-}
-
-# Function to remove launcher file
-remove_launcher_file() {
-    local file_path="$1"
-    
-    if [ -f "$file_path" ]; then
-        if [[ "$file_path" == /usr* ]] && [ "$EUID" -ne 0 ]; then
-            print_info "Removing system-wide installation: $file_path"
-            sudo rm "$file_path"
-        else
-            print_info "Removing user installation: $file_path"
-            rm "$file_path"
-        fi
-        
-        if [ $? -eq 0 ]; then
-            print_status "Successfully removed: $file_path"
-            return 0
-        else
-            print_error "Failed to remove: $file_path"
-            return 1
-        fi
+# Function to confirm uninstallation
+confirm_uninstall() {
+    echo "╔══════════════════════════════════════════════════════════════╗"
+    echo "║                    🌙 NIGHTSTALKER UNINSTALLER                ║"
+    echo "║                    Advanced Offensive Security Framework      ║"
+    echo "╚══════════════════════════════════════════════════════════════╝"
+    echo
+    print_warning "This will remove NightStalker from your system."
+    echo
+    echo "The following will be removed:"
+    echo "  • NightStalker launcher (/usr/local/bin/nightstalker)"
+    echo "  • NightStalker home directory (~/.nightstalker)"
+    echo "  • Virtual environment (venv/)"
+    echo "  • Environment variables from shell profiles"
+    echo
+    read -p "Are you sure you want to continue? (y/N): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        print_status "Uninstallation cancelled."
+        exit 0
     fi
-    
-    return 0
 }
 
-# Function to remove bash alias
-remove_bash_alias() {
-    local bashrc_file="$HOME/.bashrc"
-    local temp_file="/tmp/bashrc_temp"
+# Function to remove launcher
+remove_launcher() {
+    print_status "Removing NightStalker launcher..."
     
-    if [ -f "$bashrc_file" ]; then
-        print_info "Checking for NightStalker aliases in $bashrc_file"
-        
-        # Create backup
-        cp "$bashrc_file" "$bashrc_file.backup.$(date +%Y%m%d_%H%M%S)"
-        
-        # Remove alias lines
-        grep -v "alias nightstalker=" "$bashrc_file" > "$temp_file"
-        
-        if [ $? -eq 0 ]; then
-            mv "$temp_file" "$bashrc_file"
-            print_status "Removed NightStalker aliases from $bashrc_file"
-            print_info "Backup created: $bashrc_file.backup.*"
-            return 0
-        else
-            print_error "Failed to remove aliases from $bashrc_file"
-            rm -f "$temp_file"
-            return 1
-        fi
+    if [ -f "/usr/local/bin/nightstalker" ]; then
+        sudo rm -f /usr/local/bin/nightstalker
+        print_success "Launcher removed"
+    else
+        print_warning "Launcher not found"
     fi
-    
-    return 0
 }
 
-# Function to check for environment variables
-check_env_vars() {
-    local env_vars=("NIGHTSTALKER_HOME")
-    local found_vars=()
+# Function to remove home directory
+remove_home_directory() {
+    print_status "Removing NightStalker home directory..."
     
-    for var in "${env_vars[@]}"; do
-        if [ -n "${!var}" ]; then
-            found_vars+=("$var")
-        fi
-    done
+    NIGHTSTALKER_HOME="${NIGHTSTALKER_HOME:-$HOME/.nightstalker}"
     
-    if [ ${#found_vars[@]} -gt 0 ]; then
-        print_warning "Found environment variables:"
-        for var in "${found_vars[@]}"; do
-            print_info "  $var=${!var}"
-        done
-        
-        echo
-        read -p "Remove these from shell profiles? (y/N): " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            remove_env_vars "${found_vars[@]}"
-        fi
+    if [ -d "$NIGHTSTALKER_HOME" ]; then
+        print_warning "Removing $NIGHTSTALKER_HOME"
+        rm -rf "$NIGHTSTALKER_HOME"
+        print_success "Home directory removed"
+    else
+        print_warning "Home directory not found"
+    fi
+}
+
+# Function to remove virtual environment
+remove_venv() {
+    print_status "Removing virtual environment..."
+    
+    if [ -d "venv" ]; then
+        rm -rf venv
+        print_success "Virtual environment removed"
+    else
+        print_warning "Virtual environment not found"
     fi
 }
 
 # Function to remove environment variables
 remove_env_vars() {
-    local vars=("$@")
-    local shell_profiles=("$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile" "$HOME/.zshrc")
+    print_status "Removing environment variables from shell profiles..."
     
-    for profile in "${shell_profiles[@]}"; do
-        if [ -f "$profile" ]; then
-            local temp_file="/tmp/profile_temp"
-            local modified=false
-            
-            cp "$profile" "$profile.backup.$(date +%Y%m%d_%H%M%S)"
-            
-            # Start with original file
-            cp "$profile" "$temp_file"
-            
-            # Remove each variable
-            for var in "${vars[@]}"; do
-                if grep -q "export $var=" "$temp_file"; then
-                    grep -v "export $var=" "$temp_file" > "${temp_file}.new"
-                    mv "${temp_file}.new" "$temp_file"
-                    modified=true
-                fi
-            done
-            
-            if [ "$modified" = true ]; then
-                mv "$temp_file" "$profile"
-                print_status "Removed environment variables from $profile"
-                print_info "Backup created: $profile.backup.*"
-            else
-                rm -f "$temp_file"
-            fi
-        fi
-    done
+    # Remove from bashrc
+    if [ -f "$HOME/.bashrc" ]; then
+        sed -i '/export NIGHTSTALKER_HOME/d' "$HOME/.bashrc"
+        sed -i '/export NIGHTSTALKER_DIR/d' "$HOME/.bashrc"
+        print_success "Removed from .bashrc"
+    fi
+    
+    # Remove from zshrc
+    if [ -f "$HOME/.zshrc" ]; then
+        sed -i '/export NIGHTSTALKER_HOME/d' "$HOME/.zshrc"
+        sed -i '/export NIGHTSTALKER_DIR/d' "$HOME/.zshrc"
+        print_success "Removed from .zshrc"
+    fi
+    
+    # Remove from profile
+    if [ -f "$HOME/.profile" ]; then
+        sed -i '/export NIGHTSTALKER_HOME/d' "$HOME/.profile"
+        sed -i '/export NIGHTSTALKER_DIR/d' "$HOME/.profile"
+        print_success "Removed from .profile"
+    fi
+}
+
+# Function to clean up current session
+cleanup_session() {
+    print_status "Cleaning up current session..."
+    
+    # Unset environment variables
+    unset NIGHTSTALKER_HOME
+    unset NIGHTSTALKER_DIR
+    
+    print_success "Session cleaned up"
 }
 
 # Function to show uninstall summary
 show_summary() {
     echo
-    print_status "Uninstallation Summary:"
-    echo "  - Launcher files removed: $1"
-    echo "  - Bash aliases removed: $2"
-    echo "  - Environment variables checked: $3"
+    echo "╔══════════════════════════════════════════════════════════════╗"
+    echo "║                    🌙 NIGHTSTALKER UNINSTALLED                ║"
+    echo "║                    Advanced Offensive Security Framework      ║"
+    echo "╚══════════════════════════════════════════════════════════════╝"
     echo
-    print_info "To complete the uninstallation:"
-    print_info "  1. Restart your terminal or run: source ~/.bashrc"
-    print_info "  2. Remove any remaining NightStalker directories manually"
-    print_info "  3. Remove Python packages if desired: pip uninstall nightstalker"
+    print_success "NightStalker has been successfully uninstalled!"
     echo
-}
-
-# Function to show help
-show_help() {
-    print_banner
-    echo "Usage: $0 [OPTIONS]"
+    echo "The following were removed:"
+    echo "  ✓ NightStalker launcher"
+    echo "  ✓ NightStalker home directory"
+    echo "  ✓ Virtual environment"
+    echo "  ✓ Environment variables"
     echo
-    echo "Options:"
-    echo "  --help, -h     Show this help message"
-    echo "  --force, -f    Force removal without confirmation"
-    echo "  --all, -a      Remove all traces (files, aliases, env vars)"
+    print_warning "Note: The installation directory still exists."
+    print_warning "To completely remove NightStalker, delete this directory:"
+    echo "  $(pwd)"
     echo
-    echo "This script will remove the NightStalker launcher from your system."
-    echo "It will detect and remove:"
-    echo "  - Launcher files from common installation locations"
-    echo "  - Bash aliases from ~/.bashrc"
-    echo "  - Environment variables (with confirmation)"
+    print_warning "To reinstall NightStalker, run: ./install.sh"
     echo
 }
 
-# Main uninstall function
-main() {
-    local force=false
-    local remove_all=false
-    
-    # Parse command line arguments
-    while [[ $# -gt 0 ]]; do
-        case $1 in
-            --help|-h)
-                show_help
-                exit 0
-                ;;
-            --force|-f)
-                force=true
-                shift
-                ;;
-            --all|-a)
-                remove_all=true
-                shift
-                ;;
-            *)
-                print_error "Unknown option: $1"
-                show_help
-                exit 1
-                ;;
-        esac
-    done
-    
-    print_banner
-    
-    # Check if running as root
+# Function to check if running as root
+check_root() {
     if [ "$EUID" -eq 0 ]; then
-        print_warning "Running as root. This will remove system-wide installations."
+        print_error "Please do not run this script as root"
+        exit 1
     fi
-    
-    # Find installed launchers
-    print_info "Searching for NightStalker launcher installations..."
-    local found_launchers=($(find_launcher))
-    
-    if [ ${#found_launchers[@]} -eq 0 ]; then
-        print_warning "No NightStalker launcher found in common locations."
-        print_info "Checking PATH for any nightstalker command..."
-        
-        if command -v nightstalker &> /dev/null; then
-            local launcher_path=$(which nightstalker)
-            print_info "Found launcher at: $launcher_path"
-            found_launchers=("$launcher_path")
-        else
-            print_info "No nightstalker command found in PATH."
-        fi
-    fi
-    
-    # Show what will be removed
-    if [ ${#found_launchers[@]} -gt 0 ]; then
-        echo
-        print_info "Found launcher installations:"
-        for launcher in "${found_launchers[@]}"; do
-            echo "  - $launcher"
-        done
-    fi
+}
+
+# Main uninstallation function
+main() {
+    # Check if not running as root
+    check_root
     
     # Confirm uninstallation
-    if [ "$force" != true ]; then
-        echo
-        read -p "Continue with uninstallation? (y/N): " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            print_info "Uninstallation cancelled."
-            exit 0
-        fi
-    fi
+    confirm_uninstall
     
-    # Remove launcher files
-    local files_removed=0
-    for launcher in "${found_launchers[@]}"; do
-        if remove_launcher_file "$launcher"; then
-            ((files_removed++))
-        fi
-    done
-    
-    # Remove bash aliases
-    local aliases_removed=false
-    if remove_bash_alias; then
-        aliases_removed=true
-    fi
-    
-    # Check environment variables
-    local env_checked=false
-    if [ "$remove_all" = true ]; then
-        check_env_vars
-        env_checked=true
-    fi
+    # Remove components
+    remove_launcher
+    remove_home_directory
+    remove_venv
+    remove_env_vars
+    cleanup_session
     
     # Show summary
-    show_summary "$files_removed" "$aliases_removed" "$env_checked"
-    
-    print_status "Uninstallation completed!"
-    print_info "Please restart your terminal for changes to take effect."
+    show_summary
 }
-
-# Trap to handle script interruption
-trap 'echo -e "\n${YELLOW}[!]${NC} Uninstallation interrupted"; exit 130' INT
 
 # Run main function
 main "$@" 

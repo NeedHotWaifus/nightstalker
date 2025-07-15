@@ -1,300 +1,283 @@
-# 🌙 NightStalker Launcher Installation Guide
+# NightStalker Framework Installation Guide
 
-This guide will help you install the NightStalker CLI launcher for easy access to the Advanced Offensive Security Framework.
+## 🌙 Quick Start Installation
+
+After cloning the NightStalker repository, you can install and set up the framework with a single command:
+
+### Linux/macOS
+```bash
+# Clone the repository
+git clone https://github.com/your-username/nightstalker.git
+cd nightstalker
+
+# Run the installation script
+./install.sh
+```
+
+### Windows
+```powershell
+# Clone the repository
+git clone https://github.com/your-username/nightstalker.git
+cd nightstalker
+
+# Run the installation script (PowerShell)
+.\install.sh
+```
+
+After installation, simply run:
+```bash
+nightstalker
+```
 
 ## 📋 Prerequisites
 
-Before installing the launcher, ensure you have:
+### System Requirements
+- **Operating System**: Linux, macOS, or Windows
+- **Python**: 3.7 or higher
+- **Memory**: 2GB RAM minimum (4GB recommended)
+- **Storage**: 1GB free space
+- **Network**: Internet connection for tool downloads
 
-- **Python 3.6+** installed and accessible via `python3`
-- **NightStalker framework** already installed and working
-- **Bash shell** (Linux/macOS) or **Git Bash** (Windows)
-- **sudo access** (for system-wide installation)
+### Required System Tools
+The installation script will automatically install these tools:
+- **Git**: Version control
+- **curl/wget**: File downloads
+- **nmap**: Network scanning
+- **netcat**: Network utilities
+- **socat**: Multipurpose relay
 
-## 🚀 Quick Installation
+### Security Tools (Auto-installed)
+- **Nuclei**: Vulnerability scanner
+- **ffuf**: Web fuzzer
+- **SQLMap**: SQL injection tool
+- **Amass**: Subdomain enumeration
 
-### Method 1: Automated Installer (Recommended)
+## 🔧 Installation Process
 
-```bash
-# Download and run the installer
-curl -sSL https://raw.githubusercontent.com/your-repo/nightstalker/main/install_nightstalker.sh | bash
+### What the Installation Script Does
 
-# Or if you have the installer locally
-chmod +x install_nightstalker.sh
-./install_nightstalker.sh
+1. **System Dependencies**: Installs required system packages
+2. **Python Environment**: Creates virtual environment and installs Python dependencies
+3. **NightStalker Home**: Sets up `~/.nightstalker` directory structure
+4. **Security Tools**: Downloads and installs security testing tools
+5. **Launcher**: Creates system-wide `nightstalker` command
+6. **Configuration**: Sets up default configuration files
+7. **Permissions**: Configures proper file permissions
+8. **Testing**: Verifies installation and tool availability
+
+### Directory Structure Created
+
+```
+~/.nightstalker/
+├── config/          # Configuration files
+├── data/           # Framework data
+├── logs/           # Log files
+├── output/         # Output files
+├── payloads/       # Generated payloads
+├── results/        # Test results
+└── tools/          # Security tools
 ```
 
-The installer will:
-- Detect your NightStalker installation
-- Choose the best installation method
-- Set up the launcher with proper configuration
-- Test the installation
+## 🚀 Post-Installation
 
-### Method 2: Manual Installation
-
-#### Step 1: Download the Launcher Script
-
+### First Run
+After installation, restart your terminal or run:
 ```bash
-# Download the launcher script
-curl -o nightstalker.sh https://raw.githubusercontent.com/your-repo/nightstalker/main/nightstalker.sh
-chmod +x nightstalker.sh
+source ~/.bashrc  # Linux/macOS
+# or
+source ~/.zshrc   # macOS with zsh
 ```
 
-#### Step 2: Configure the Script
-
-Edit the script and update the NightStalker directory:
-
+### Verify Installation
 ```bash
-# Open the script in your preferred editor
-nano nightstalker.sh
+# Check if nightstalker command is available
+which nightstalker
 
-# Find and update this line:
-NIGHTSTALKER_DIR="$HOME/path/to/nightstalker"
-# Change it to your actual NightStalker directory
+# Run NightStalker with help
+nightstalker --help
+
+# Start interactive menu
+nightstalker
 ```
 
-#### Step 3: Install the Launcher
+### Environment Variables
+The installation sets these environment variables:
+- `NIGHTSTALKER_HOME`: `~/.nightstalker`
+- `NIGHTSTALKER_DIR`: Installation directory
+- `PYTHONPATH`: Includes NightStalker modules
 
-Choose one of the following installation methods:
+## 🛠️ Manual Installation
 
-**A. System-wide Installation (Recommended)**
+If you prefer manual installation or the script fails:
+
+### 1. Install System Dependencies
+
+**Ubuntu/Debian:**
 ```bash
-# Copy to system bin directory (requires sudo)
-sudo cp nightstalker.sh /usr/local/bin/nightstalker
+sudo apt update
+sudo apt install python3 python3-pip python3-venv git curl wget nmap netcat-openbsd socat
+```
+
+**CentOS/RHEL/Fedora:**
+```bash
+sudo yum update
+sudo yum install python3 python3-pip git curl wget nmap nc socat
+```
+
+**macOS:**
+```bash
+brew install python3 git curl wget nmap netcat socat
+```
+
+### 2. Setup Python Environment
+```bash
+# Create virtual environment
+python3 -m venv venv
+
+# Activate virtual environment
+source venv/bin/activate  # Linux/macOS
+# or
+venv\Scripts\activate     # Windows
+
+# Install Python dependencies
+pip install -r requirements.txt
+```
+
+### 3. Setup NightStalker Home
+```bash
+# Create home directory
+mkdir -p ~/.nightstalker/{config,data,logs,output,payloads,results,tools}
+
+# Set environment variable
+echo 'export NIGHTSTALKER_HOME="$HOME/.nightstalker"' >> ~/.bashrc
+echo 'export NIGHTSTALKER_DIR="$(pwd)"' >> ~/.bashrc
+```
+
+### 4. Create Launcher
+```bash
+# Create launcher script
+sudo tee /usr/local/bin/nightstalker > /dev/null << 'EOF'
+#!/bin/bash
+export NIGHTSTALKER_HOME="${NIGHTSTALKER_HOME:-$HOME/.nightstalker}"
+export NIGHTSTALKER_DIR="${NIGHTSTALKER_DIR:-$(pwd)}"
+export PYTHONPATH="$NIGHTSTALKER_DIR:$PYTHONPATH"
+cd "$NIGHTSTALKER_DIR"
+source venv/bin/activate 2>/dev/null || true
+python3 -m nightstalker.cli "$@"
+EOF
+
+# Make executable
 sudo chmod +x /usr/local/bin/nightstalker
-
-# Test the installation
-nightstalker --version
-```
-
-**B. User-specific Installation**
-```bash
-# Create user bin directory
-mkdir -p ~/.local/bin
-
-# Copy the launcher
-cp nightstalker.sh ~/.local/bin/nightstalker
-chmod +x ~/.local/bin/nightstalker
-
-# Add to PATH (if not already there)
-echo 'export PATH="$PATH:~/.local/bin"' >> ~/.bashrc
-source ~/.bashrc
-
-# Test the installation
-nightstalker --version
-```
-
-**C. Bash Alias Installation**
-```bash
-# Add alias to bashrc
-echo 'alias nightstalker="cd /path/to/your/nightstalker && python3 -m nightstalker.cli"' >> ~/.bashrc
-source ~/.bashrc
-
-# Test the installation
-nightstalker --version
-```
-
-## 🔧 Installation Methods Comparison
-
-| Method | Pros | Cons | Best For |
-|--------|------|------|----------|
-| **System-wide** | Available to all users, no PATH issues | Requires sudo, affects system | Multi-user systems, servers |
-| **User-specific** | No sudo required, isolated | PATH setup needed | Single user, development |
-| **Bash Alias** | Simple, no files copied | Limited functionality, shell-specific | Quick setup, testing |
-
-## 🌍 Environment Variable Configuration
-
-You can also use environment variables for flexible configuration:
-
-```bash
-# Set NightStalker home directory
-export NIGHTSTALKER_HOME="/path/to/your/nightstalker"
-
-# Add to your shell profile for persistence
-echo 'export NIGHTSTALKER_HOME="/path/to/your/nightstalker"' >> ~/.bashrc
-source ~/.bashrc
-```
-
-## 🧪 Testing the Installation
-
-After installation, test the launcher:
-
-```bash
-# Test basic functionality
-nightstalker --version
-
-# Test interactive menu
-nightstalker
-
-# Test stealth payload commands
-nightstalker stealth build --help
-nightstalker stealth server --help
-```
-
-## 📖 Usage Examples
-
-Once installed, you can use the launcher from anywhere:
-
-```bash
-# Interactive menu
-nightstalker
-
-# Build stealth payload
-nightstalker stealth build --lhost 192.168.1.100 --lport 4444
-
-# Start C2 server
-nightstalker stealth server --host 0.0.0.0 --port 4444
-
-# Run demo
-nightstalker stealth demo
-
-# Build regular payloads
-nightstalker payload build --type recon --format python
-
-# Run penetration testing
-nightstalker pentest --target 192.168.1.0/24
-
-# Web red teaming
-nightstalker webred scan --url https://target.com
 ```
 
 ## 🔍 Troubleshooting
 
 ### Common Issues
 
-**1. "Command not found: nightstalker"**
+**1. "nightstalker command not found"**
 ```bash
-# Check if the launcher is in PATH
-which nightstalker
-
-# If not found, check installation location
+# Check if launcher was created
 ls -la /usr/local/bin/nightstalker
-ls -la ~/.local/bin/nightstalker
 
-# Re-add to PATH if needed
-export PATH="$PATH:~/.local/bin"
+# If not found, recreate manually
+sudo ./install.sh
 ```
 
-**2. "NightStalker directory not found"**
+**2. "Python module not found"**
 ```bash
-# Check the directory path in the script
-grep "NIGHTSTALKER_DIR" /usr/local/bin/nightstalker
+# Activate virtual environment
+source venv/bin/activate
 
-# Set environment variable
-export NIGHTSTALKER_HOME="/correct/path/to/nightstalker"
+# Reinstall dependencies
+pip install -r requirements.txt
 ```
 
-**3. "Python 3 is not installed"**
-```bash
-# Install Python 3
-sudo apt update && sudo apt install python3 python3-pip  # Ubuntu/Debian
-sudo yum install python3 python3-pip  # CentOS/RHEL
-brew install python3  # macOS
-```
-
-**4. "NightStalker module not found"**
-```bash
-# Navigate to NightStalker directory
-cd /path/to/nightstalker
-
-# Install dependencies
-pip3 install -r requirements.txt
-
-# Test module import
-python3 -c "import nightstalker; print('Module found')"
-```
-
-**5. "Permission denied"**
+**3. "Permission denied"**
 ```bash
 # Fix permissions
-sudo chmod +x /usr/local/bin/nightstalker
-# or
-chmod +x ~/.local/bin/nightstalker
+chmod +x install.sh
+chmod +x *.sh
+chmod +x nightstalker/*.py
 ```
 
-### Debug Mode
-
-Enable debug output to troubleshoot issues:
-
+**4. "Tool not found" (nuclei, ffuf, etc.)**
 ```bash
-# Run with verbose output
-bash -x /usr/local/bin/nightstalker --version
-
-# Check script execution
-bash -n /usr/local/bin/nightstalker  # Syntax check
+# Reinstall security tools
+cd ~/.nightstalker/tools
+# Follow tool-specific installation instructions
 ```
 
-## 🗑️ Uninstallation
+### Windows-Specific Issues
 
-To remove the launcher:
-
-**System-wide installation:**
-```bash
-sudo rm /usr/local/bin/nightstalker
+**1. PowerShell Execution Policy**
+```powershell
+# Allow script execution
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 ```
 
-**User-specific installation:**
-```bash
-rm ~/.local/bin/nightstalker
+**2. Python not in PATH**
+```powershell
+# Add Python to PATH or use full path
+C:\Python39\python.exe -m nightstalker.cli
 ```
 
-**Bash alias:**
-```bash
-# Remove the alias line from ~/.bashrc
-sed -i '/alias nightstalker=/d' ~/.bashrc
-source ~/.bashrc
+**3. Virtual Environment Issues**
+```powershell
+# Create virtual environment manually
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+pip install -r requirements.txt
 ```
 
-## 🔄 Updating the Launcher
+## 🔒 Security Considerations
 
-To update the launcher:
+### Installation Security
+- The installation script requires sudo access for system tools
+- Security tools are downloaded from official sources
+- All downloads are verified for integrity
+- Virtual environment isolates Python dependencies
 
-```bash
-# Download the latest version
-curl -o nightstalker.sh https://raw.githubusercontent.com/your-repo/nightstalker/main/nightstalker.sh
+### Runtime Security
+- NightStalker home directory has restricted permissions (700)
+- Configuration files are stored securely
+- Logs are rotated and cleaned automatically
+- No sensitive data is stored in plain text
 
-# Reinstall using your preferred method
-sudo cp nightstalker.sh /usr/local/bin/nightstalker
-sudo chmod +x /usr/local/bin/nightstalker
-```
+### Ethical Usage
+⚠️ **IMPORTANT**: NightStalker is for authorized security testing only.
 
-## 📝 Configuration Files
+- Only use on systems you own or have explicit permission to test
+- Follow responsible disclosure practices
+- Comply with local laws and regulations
+- Document all testing activities
 
-The launcher can be configured through:
+## 📚 Next Steps
 
-1. **Script variables** - Edit the launcher script directly
-2. **Environment variables** - Set `NIGHTSTALKER_HOME`
-3. **Command line arguments** - Pass options to the launcher
+After successful installation:
 
-## 🛡️ Security Considerations
+1. **Read the Documentation**: Check `docs/` directory for detailed guides
+2. **Run Examples**: Try the example scripts in `examples/` directory
+3. **Configure Settings**: Customize `~/.nightstalker/config/nightstalker_config.yaml`
+4. **Join Community**: Connect with other security professionals
 
-- The launcher script should be owned by root for system-wide installations
-- User-specific installations are more secure for development environments
-- Always verify the script source before installation
-- Consider using a virtual environment for Python dependencies
-
-## 📞 Support
+## 🆘 Support
 
 If you encounter issues:
 
 1. Check the troubleshooting section above
-2. Verify your NightStalker installation is working
-3. Check Python and dependency versions
-4. Review the launcher script logs
-5. Open an issue on the GitHub repository
+2. Review the logs in `~/.nightstalker/logs/`
+3. Search existing issues on GitHub
+4. Create a new issue with detailed information
 
-## 🎯 Next Steps
-
-After successful installation:
-
-1. **Test the interactive menu**: `nightstalker`
-2. **Build your first payload**: `nightstalker stealth build --interactive`
-3. **Start a C2 server**: `nightstalker stealth server`
-4. **Run the demo**: `nightstalker stealth demo`
-5. **Explore other modules**: `nightstalker --help`
+### Required Information for Support
+- Operating system and version
+- Python version (`python3 --version`)
+- Installation method used
+- Error messages and logs
+- Steps to reproduce the issue
 
 ---
 
-**Happy Hacking! 🎯**
+**Happy Hacking! 🌙**
 
-Remember to always obtain proper authorization before testing any systems, and follow responsible disclosure practices when reporting vulnerabilities. 
+Remember: With great power comes great responsibility. Use NightStalker ethically and legally. 

