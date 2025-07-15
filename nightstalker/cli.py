@@ -977,46 +977,32 @@ For detailed help on each group or subcommand, use:
                 print(f"❌ Error: {e}")
 
     def _handle_payload_menu(self):
-        """Handle payload building menu"""
+        """Handle payload menu"""
         while True:
-            print("\n🎯 Payload Building Options:")
+            print("\n💾 Payloads:")
             print("  1. Build payload")
             print("  2. List available payloads")
             print("  3. Clean built payloads")
             print("  4. Back to main menu")
-            
             choice = input("Select option (1-4): ").strip()
-            
             if choice == '1':
-                payload_type = input("Enter payload type: ").strip()
-                output_format = input("Enter output format (python/exe/dll/shellcode): ").strip() or "python"
-                output_path = input("Enter output path (optional): ").strip() or None
-                
-                args = argparse.Namespace(
-                    payload_cmd='build',
-                    type=payload_type,
-                    format=output_format,
-                    output=output_path
-                )
+                args = argparse.Namespace(payload_cmd='build')
                 self._handle_payload(args)
-                
             elif choice == '2':
                 args = argparse.Namespace(payload_cmd='list')
                 self._handle_payload(args)
-                
             elif choice == '3':
                 args = argparse.Namespace(payload_cmd='clean')
                 self._handle_payload(args)
-                
             elif choice == '4':
                 return  # Return to main menu
             else:
                 print("Invalid option. Please select 1-4.")
 
     def _handle_stealth_menu(self):
-        """Handle stealth payload menu"""
+        """Handle stealth menu"""
         while True:
-            print("\n🥷 Stealth Payload Options:")
+            print("\n🕵️ Stealth Server:")
             print("  1. Build stealth payload")
             print("  2. Deploy stealth payload")
             print("  3. Start C2 server")
@@ -1024,62 +1010,27 @@ For detailed help on each group or subcommand, use:
             print("  5. List configurations")
             print("  6. Test payload")
             print("  7. Back to main menu")
-            
             choice = input("Select option (1-7): ").strip()
-            
             if choice == '1':
-                lhost = input("Enter C2 server IP: ").strip()
-                lport = input("Enter C2 server port: ").strip()
-                
-                args = argparse.Namespace(
-                    stealth_cmd='build',
-                    lhost=lhost,
-                    lport=int(lport) if lport.isdigit() else 4444,
-                    interactive=True
-                )
+                args = argparse.Namespace(stealth_cmd='build')
                 self._handle_stealth(args)
-                
             elif choice == '2':
-                payload_path = input("Enter payload file path: ").strip()
-                target = input("Enter target IP: ").strip()
-                
-                args = argparse.Namespace(
-                    stealth_cmd='deploy',
-                    payload=payload_path,
-                    target=target
-                )
+                args = argparse.Namespace(stealth_cmd='deploy')
                 self._handle_stealth(args)
-                
             elif choice == '3':
-                host = input("Enter server host (default: 0.0.0.0): ").strip() or "0.0.0.0"
-                port = input("Enter server port (default: 4444): ").strip() or "4444"
-                
-                args = argparse.Namespace(
-                    stealth_cmd='server',
-                    host=host,
-                    port=int(port) if port.isdigit() else 4444
-                )
+                args = argparse.Namespace(stealth_cmd='server')
                 self._handle_stealth(args)
-                
             elif choice == '4':
                 args = argparse.Namespace(stealth_cmd='demo')
                 self._handle_stealth(args)
-                
             elif choice == '5':
                 args = argparse.Namespace(stealth_cmd='list')
                 self._handle_stealth(args)
-                
             elif choice == '6':
-                payload_path = input("Enter payload file path to test: ").strip()
-                
-                args = argparse.Namespace(
-                    stealth_cmd='test',
-                    payload=payload_path
-                )
+                args = argparse.Namespace(stealth_cmd='test')
                 self._handle_stealth(args)
-                
             elif choice == '7':
-                return  # Return to main menu
+                return
             else:
                 print("Invalid option. Please select 1-7.")
 
@@ -1108,37 +1059,21 @@ For detailed help on each group or subcommand, use:
                 print("Invalid option. Please select 1-2.")
 
     def _handle_redteam_menu(self):
-        """Handle red team operations menu"""
+        """Handle red team menu"""
         while True:
-            print("\n🦠 Red Team Operations:")
-            print("  1. Execute targeted attack")
-            print("  2. Run genetic fuzzing")
+            print("\n🔴 Red Team Operations:")
+            print("  1. Attack target")
+            print("  2. Fuzz target")
             print("  3. Back to main menu")
-            
             choice = input("Select option (1-3): ").strip()
-            
             if choice == '1':
-                target = input("Enter target IP: ").strip()
-                payload = input("Enter payload type (memory_only/file_based/network): ").strip() or "memory_only"
-                
-                args = argparse.Namespace(
-                    red_cmd='attack',
-                    target=target,
-                    payload=payload
-                )
+                args = argparse.Namespace(red_cmd='attack')
                 self._handle_redteam(args)
-                
             elif choice == '2':
-                target = input("Enter target URL: ").strip()
-                
-                args = argparse.Namespace(
-                    red_cmd='fuzz',
-                    target=target
-                )
+                args = argparse.Namespace(red_cmd='fuzz')
                 self._handle_redteam(args)
-                
             elif choice == '3':
-                return  # Return to main menu
+                return
             else:
                 print("Invalid option. Please select 1-3.")
 
@@ -1352,17 +1287,16 @@ def main():
     
     # If no arguments provided, show interactive menu
     if len(sys.argv) == 1:
-        print("\n🌙 NIGHTSTALKER MAIN MENU")
-        print("=" * 40)
-        print("1. Payloads")
-        print("2. Stealth Server")
-        print("3. Stealth Payload Builder")
-        print("4. Red Team Operations")
-        print("5. Web Red Teaming")
-        print("6. C2 Operations")
-        print("7. Exit")
-        
         while True:
+            print("\n🌙 NIGHTSTALKER MAIN MENU")
+            print("=" * 40)
+            print("1. Payloads")
+            print("2. Stealth Server")
+            print("3. Stealth Payload Builder")
+            print("4. Red Team Operations")
+            print("5. Web Red Teaming")
+            print("6. C2 Operations")
+            print("7. Exit")
             try:
                 choice = input("\nSelect an option (1-7): ").strip()
                 if choice == '1':
