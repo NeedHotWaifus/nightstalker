@@ -1,0 +1,296 @@
+# NightStalker Campaign Configuration
+# Advanced offensive security framework campaign settings
+
+campaign:
+  name: "Default Campaign"
+  description: "Comprehensive security assessment campaign"
+  version: "1.0.0"
+  author: "Security Research Team"
+
+# Global settings
+settings:
+  stealth_level: 8  # 1-10 scale
+  timeout_multiplier: 1.5
+  retry_count: 3
+  abort_on_detection: true
+  cleanup_after_completion: true
+
+# Attack phases configuration
+phases:
+  reconnaissance:
+    description: "Initial reconnaissance and enumeration"
+    enabled: true
+    tools:
+      - nmap
+      - amass
+      - dnsx
+      - subfinder
+      - httpx
+    targets: []
+    dependencies: []
+    abort_conditions:
+      - vm_detected
+      - network_monitoring
+      - sandbox_detected
+    timeout: 600
+    stealth_level: 7
+    options:
+      nmap:
+        - "-sS"
+        - "-sV"
+        - "-O"
+        - "--script=vuln"
+        - "--min-rate=100"
+        - "--max-retries=2"
+      amass:
+        - "enum"
+        - "-passive"
+        - "-brute"
+      dnsx:
+        - "-silent"
+        - "-a"
+        - "-aaaa"
+        - "-cname"
+
+  enumeration:
+    description: "Detailed service and application enumeration"
+    enabled: true
+    tools:
+      - gobuster
+      - nikto
+      - wpscan
+      - nuclei
+      - sqlmap
+    targets: []
+    dependencies:
+      - reconnaissance
+    abort_conditions:
+      - debugger_detected
+      - network_monitoring
+    timeout: 900
+    stealth_level: 8
+    options:
+      gobuster:
+        - "dir"
+        - "-u"
+        - "-w"
+        - "/usr/share/wordlists/dirb/common.txt"
+        - "-t"
+        - "50"
+      nikto:
+        - "-h"
+        - "-Format"
+        - "json"
+      wpscan:
+        - "--enumerate"
+        - "p,t,u"
+        - "--random-user-agent"
+      nuclei:
+        - "-silent"
+        - "-severity"
+        - "medium,high,critical"
+
+  exploitation:
+    description: "Vulnerability exploitation and initial access"
+    enabled: true
+    tools:
+      - metasploit
+      - sqlmap
+      - xsstrike
+      - hydra
+      - john
+    targets: []
+    dependencies:
+      - enumeration
+    abort_conditions:
+      - debugger_detected
+      - sandbox_detected
+      - vm_detected
+    timeout: 1200
+    stealth_level: 9
+    options:
+      sqlmap:
+        - "--batch"
+        - "--random-agent"
+        - "--level=1"
+        - "--risk=1"
+        - "--delay=2"
+      xsstrike:
+        - "--blind"
+        - "--crawl"
+        - "--random-agent"
+      hydra:
+        - "-t"
+        - "4"
+        - "-V"
+        - "-f"
+
+  post_exploitation:
+    description: "Post-exploitation activities and lateral movement"
+    enabled: true
+    tools:
+      - mimikatz
+      - bloodhound
+      - empire
+      - cobaltstrike
+    targets: []
+    dependencies:
+      - exploitation
+    abort_conditions:
+      - vm_detected
+      - debugger_detected
+    timeout: 1800
+    stealth_level: 10
+    options:
+      mimikatz:
+        - "privilege::debug"
+        - "sekurlsa::logonpasswords"
+      bloodhound:
+        - "-c"
+        - "All"
+        - "-d"
+        - "domain.local"
+
+  persistence:
+    description: "Establish persistence mechanisms"
+    enabled: true
+    tools:
+      - powershell
+      - reg
+      - schtasks
+      - wmic
+    targets: []
+    dependencies:
+      - post_exploitation
+    abort_conditions:
+      - vm_detected
+    timeout: 600
+    stealth_level: 9
+    options:
+      powershell:
+        - "-ExecutionPolicy"
+        - "Bypass"
+        - "-NoProfile"
+      reg:
+        - "add"
+        - "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"
+
+  exfiltration:
+    description: "Data exfiltration and evidence collection"
+    enabled: true
+    tools:
+      - custom_exfil
+      - rclone
+      - scp
+      - ftp
+    targets: []
+    dependencies:
+      - persistence
+    abort_conditions:
+      - network_monitoring
+    timeout: 900
+    stealth_level: 8
+    options:
+      custom_exfil:
+        - "--channels"
+        - "dns,https,icmp"
+        - "--encrypt"
+        - "--chunk-size"
+        - "1024"
+
+  cleanup:
+    description: "Trace cleaning and anti-forensics"
+    enabled: true
+    tools:
+      - trace_cleaner
+      - anti_forensics
+      - log_wiper
+    targets: []
+    dependencies:
+      - exfiltration
+    abort_conditions: []
+    timeout: 300
+    stealth_level: 10
+    options:
+      trace_cleaner:
+        - "--level"
+        - "forensic"
+        - "--wipe-logs"
+        - "--clear-registry"
+      anti_forensics:
+        - "--timestomp"
+        - "--file-wipe"
+        - "--memory-clear"
+
+# Tool configurations
+tools:
+  nmap:
+    path: "/usr/bin/nmap"
+    version: "7.80"
+    options:
+      default: ["-sS", "-sV", "-O"]
+      stealth: ["--timing=4", "--max-scan-delay=1000"]
+      aggressive: ["-A", "-T4"]
+  
+  amass:
+    path: "/usr/bin/amass"
+    version: "3.11.12"
+    options:
+      default: ["enum", "-passive"]
+      active: ["-brute", "-active"]
+  
+  sqlmap:
+    path: "/usr/bin/sqlmap"
+    version: "1.5.12"
+    options:
+      default: ["--batch", "--random-agent"]
+      stealth: ["--delay=2", "--time-sec=10"]
+  
+  nuclei:
+    path: "/usr/bin/nuclei"
+    version: "2.8.0"
+    options:
+      default: ["-silent", "-severity", "medium,high,critical"]
+
+# Target configurations
+targets:
+  default_scope:
+    - "192.168.1.0/24"
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+  
+  excluded_targets:
+    - "192.168.1.1"
+    - "10.0.0.1"
+    - "172.16.0.1"
+
+# Reporting configuration
+reporting:
+  format: "json"
+  output_dir: "results"
+  include_screenshots: true
+  include_logs: true
+  encryption: true
+  compression: true
+
+# OPSEC settings
+opsec:
+  rotate_user_agents: true
+  random_delays: true
+  max_concurrent_connections: 5
+  use_proxies: false
+  proxy_list: []
+  spoof_mac_address: true
+  clear_logs: true
+  secure_deletion: true
+
+# Advanced settings
+advanced:
+  polymorphic_payloads: true
+  anti_vm_techniques: true
+  anti_debug_techniques: true
+  anti_sandbox_techniques: true
+  memory_only_execution: false
+  domain_fronting: false
+  dns_tunneling: false
+  icmp_tunneling: false 
